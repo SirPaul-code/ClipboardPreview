@@ -1,0 +1,21 @@
+/* System theme corrections kept separate from component styling.
+   All colors derive from the active theme variables, so system light/dark
+   does not need duplicated component rules. */
+.theme-system .brand-mark,
+.theme-system .hero-mark,
+.theme-system .about-icon {
+  border-color: var(--text);
+  color: var(--bg);
+  background: var(--text);
+}
+
+.theme-system .primary {
+  border-color: var(--text);
+  color: var(--bg);
+  background: var(--text);
+}
+
+.theme-system .permission-ok {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 11%, var(--bg));
+}
