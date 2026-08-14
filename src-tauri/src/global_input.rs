@@ -62,6 +62,8 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
         return Some(event);
     };
 
+    update_modifier_state(&state, &event.event_type);
+
     if state.replaying_tab.load(Ordering::SeqCst) {
         return Some(event);
     }
@@ -73,14 +75,16 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
                 return None;
             }
         }
-        EventType::KeyPress(Key::Tab) if history_uses_tab(&state) => {
+        EventType::KeyPress(Key::Tab) if history_uses_tab(&state) && !modifier_pressed(&state) => {
             if !state.tab_down.swap(true, Ordering::SeqCst) {
                 state.tab_hold_triggered.store(false, Ordering::SeqCst);
                 schedule_tab_hold(app.clone());
             }
             return None;
         }
-        EventType::KeyRelease(Key::Tab) if history_uses_tab(&state) => {
+        EventType::KeyRelease(Key::Tab)
+            if history_uses_tab(&state) && state.tab_down.load(Ordering::SeqCst) =>
+        {
             state.tab_down.store(false, Ordering::SeqCst);
             if state.tab_hold_triggered.swap(false, Ordering::SeqCst) {
                 let mode = state.settings.read().history.interaction_mode.clone();
@@ -96,6 +100,34 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
     }
 
     Some(event)
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn update_modifier_state(state: &AppState, event_type: &rdev::EventType) {
+    use rdev::{EventType, Key};
+
+    let (key, pressed) = match event_type {
+        EventType::KeyPress(key) => (*key, true),
+        EventType::KeyRelease(key) => (*key, false),
+        _ => return,
+    };
+
+    match key {
+        Key::Alt | Key::AltGr => state.alt_down.store(pressed, Ordering::SeqCst),
+        Key::ControlLeft | Key::ControlRight => {
+            state.control_down.store(pressed, Ordering::SeqCst)
+        }
+        Key::ShiftLeft | Key::ShiftRight => state.shift_down.store(pressed, Ordering::SeqCst),
+        Key::MetaLeft | Key::MetaRight => state.meta_down.store(pressed, Ordering::SeqCst),
+        _ => {}
+    }
+}
+
+fn modifier_pressed(state: &AppState) -> bool {
+    state.alt_down.load(Ordering::SeqCst)
+        || state.control_down.load(Ordering::SeqCst)
+        || state.shift_down.load(Ordering::SeqCst)
+        || state.meta_down.load(Ordering::SeqCst)
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
