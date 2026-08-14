@@ -1,12 +1,16 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_VERSION: u32 = 2;
+pub const CONFIG_VERSION: u32 = 3;
 pub const HISTORY_MAX_ITEMS: usize = 250;
 pub const HISTORY_PERF_WARNING_ITEMS: usize = 150;
 pub const HISTORY_MEMORY_BUDGET_MIB: usize = 192;
 pub const TAB_HOLD_DELAY_MS: u64 = 180;
 pub const IMAGE_PREVIEW_DELAY_MS: u64 = 650;
+
+fn default_large_preview_panel() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -122,6 +126,8 @@ pub struct HistorySettings {
     pub persist_history: bool,
     pub clear_on_exit: bool,
     pub interaction_mode: InteractionMode,
+    #[serde(default = "default_large_preview_panel")]
+    pub large_preview_panel: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -203,6 +209,7 @@ impl Default for AppSettings {
                 persist_history: false,
                 clear_on_exit: false,
                 interaction_mode: InteractionMode::HoldRelease,
+                large_preview_panel: true,
             },
             appearance: AppearanceSettings {
                 theme: ThemePreference::System,
@@ -272,6 +279,7 @@ pub struct HistoryOverlayPayload {
     pub total_items: usize,
     pub shortcut: String,
     pub image_preview_delay_ms: u64,
+    pub large_preview_panel: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -316,6 +324,7 @@ mod tests {
         let x = AppSettings::default();
         assert_eq!(x.shortcuts.history_selector, "Tab");
         assert_eq!(x.history.visible_items, 6);
+        assert!(x.history.large_preview_panel);
     }
 
     #[test]
@@ -328,10 +337,19 @@ mod tests {
         x.history.max_items = 20;
         x.history.visible_items = 5;
         let x = x.migrate();
-        assert_eq!(x.config_version, 2);
+        assert_eq!(x.config_version, CONFIG_VERSION);
         assert_eq!(x.shortcuts.history_selector, "Tab");
         assert_eq!(x.history.max_items, 40);
         assert_eq!(x.history.visible_items, 6);
+    }
+
+    #[test]
+    fn deserializes_v2_settings_without_layout_flag() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        value["configVersion"] = serde_json::json!(2);
+        value["history"].as_object_mut().unwrap().remove("largePreviewPanel");
+        let x: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(x.history.large_preview_panel);
     }
 
     #[test]
