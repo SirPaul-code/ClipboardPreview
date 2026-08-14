@@ -54,11 +54,13 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 }
 
 pub fn register_all(app: &AppHandle) -> Result<(), String> {
-    let Some(state) = app.try_state::<AppState>() else {
-        return Err("Application state is not ready for shortcut registration".into());
+    let settings = {
+        let Some(state) = app.try_state::<AppState>() else {
+            return Err("Application state is not ready for shortcut registration".into());
+        };
+        let settings = state.settings.read().clone();
+        settings
     };
-    let settings = state.settings.read().clone();
-    drop(state);
 
     let manager = app.global_shortcut();
     manager.unregister_all().map_err(|error| error.to_string())?;
