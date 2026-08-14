@@ -1,0 +1,99 @@
+name: Publish v1.2.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v1.2.0.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-v1.2.0
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: v1.2.0
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create v1.2.0 release at merged main commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Clipboard Preview v1.2.0" \
+              --notes "Clipboard Preview v1.2.0 adds the refined Tab clipboard switcher, text and image history, delayed image previews, compact row-only mode, exact row sizing without partial-scroll artifacts, bounded history memory, crash diagnostics, resilient startup ordering, and a full desktop-utility visual redesign. The UI intentionally avoids glassmorphism, gradient-heavy SaaS styling, decorative card nesting, and other generic generated-interface patterns. Made by Pavol Duplinsky (@SirPaul-code). Community artifacts are unsigned unless signing credentials are configured."
+          fi
+
+  build-release:
+    needs: prepare-release
+    name: v1.2.0 ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+          - name: macOS Apple Silicon
+            os: macos-15
+          - name: macOS Intel
+            os: macos-15-intel
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Validate version and startup invariants
+        shell: bash
+        env:
+          GITHUB_REF_TYPE: tag
+          GITHUB_REF_NAME: v1.2.0
+        run: npm run check:version
+      - name: Verify locked Rust dependency graph
+        run: cargo metadata --locked --manifest-path src-tauri/Cargo.toml --no-deps
+      - name: Build and upload release bundles
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v1.2.0
+          releaseName: Clipboard Preview v1.2.0
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          releaseAssetNamePattern: ClipboardPreview-[version]-[platform]-[arch][setup][ext]
+
+  remove-broken-releases:
+    needs: build-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove v1.0 releases with confirmed startup crash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tag in v1.0.0 v1.0.1; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+            fi
+          done
