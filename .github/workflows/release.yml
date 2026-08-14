@@ -27,9 +27,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install frontend dependencies
-        run: npm install
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Validate version, tag, and startup invariants
+        run: npm run check:version
+      - name: Verify locked Rust dependency graph
+        run: cargo metadata --locked --manifest-path src-tauri/Cargo.toml --no-deps
       - name: Build and upload release bundles
         uses: tauri-apps/tauri-action@v1
         env:

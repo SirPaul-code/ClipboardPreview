@@ -1,7 +1,12 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_VERSION: u32 = 1;
+pub const CONFIG_VERSION: u32 = 2;
+pub const HISTORY_MAX_ITEMS: usize = 250;
+pub const HISTORY_PERF_WARNING_ITEMS: usize = 150;
+pub const HISTORY_MEMORY_BUDGET_MIB: usize = 192;
+pub const TAB_HOLD_DELAY_MS: u64 = 180;
+pub const IMAGE_PREVIEW_DELAY_MS: u64 = 650;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -10,6 +15,7 @@ pub enum ClipboardContentType {
     Url,
     Code,
     Multiline,
+    Image,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -17,6 +23,12 @@ pub enum ClipboardContentType {
 pub struct ClipboardMetadata {
     pub character_count: usize,
     pub line_count: usize,
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+    #[serde(default)]
+    pub byte_size: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -25,11 +37,14 @@ pub struct ClipboardItem {
     pub id: String,
     #[serde(rename = "type")]
     pub content_type: ClipboardContentType,
-    pub content: String,
+    #[serde(default)]
+    pub content: Option<String>,
     pub preview: String,
     pub created_at: DateTime<Utc>,
     pub hash: String,
     pub metadata: ClipboardMetadata,
+    #[serde(default)]
+    pub thumbnail_data_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -162,14 +177,14 @@ impl Default for AppSettings {
             },
             shortcuts: ShortcutSettings {
                 quick_preview: "Ctrl+Alt+K".into(),
-                history_selector: "Ctrl+Alt+J".into(),
+                history_selector: "Tab".into(),
                 open_settings: "Ctrl+Alt+P".into(),
                 pause_monitoring: "Ctrl+Alt+Shift+P".into(),
             },
             preview: PreviewSettings {
-                max_characters: 120,
-                max_lines: 4,
-                width: 460,
+                max_characters: 160,
+                max_lines: 6,
+                width: 480,
                 font_size: 14,
                 text_wrapping: true,
                 position: OverlayPosition::Cursor,
@@ -180,8 +195,8 @@ impl Default for AppSettings {
                 show_character_count: false,
             },
             history: HistorySettings {
-                max_items: 20,
-                visible_items: 5,
+                max_items: 40,
+                visible_items: 6,
                 scroll_direction: ScrollDirection::Natural,
                 wrap_selection: false,
                 move_selected_to_top: true,
@@ -191,8 +206,8 @@ impl Default for AppSettings {
             },
             appearance: AppearanceSettings {
                 theme: ThemePreference::System,
-                overlay_opacity: 0.96,
-                corner_radius: 13,
+                overlay_opacity: 0.97,
+                corner_radius: 16,
                 compact_spacing: false,
                 font_size: 14,
                 reduced_motion: false,
@@ -206,6 +221,21 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    pub fn migrate(mut self) -> Self {
+        if self.config_version < 2 {
+            if self.shortcuts.history_selector.eq_ignore_ascii_case("Ctrl+Alt+J") {
+                self.shortcuts.history_selector = "Tab".into();
+            }
+            if self.history.max_items == 20 {
+                self.history.max_items = 40;
+            }
+            if self.history.visible_items == 5 {
+                self.history.visible_items = 6;
+            }
+        }
+        self.normalized()
+    }
+
     pub fn normalized(mut self) -> Self {
         self.config_version = CONFIG_VERSION;
         self.preview.max_characters = self.preview.max_characters.clamp(20, 2000);
@@ -213,7 +243,7 @@ impl AppSettings {
         self.preview.width = self.preview.width.clamp(280, 760);
         self.preview.font_size = self.preview.font_size.clamp(11, 22);
         self.preview.auto_hide_ms = self.preview.auto_hide_ms.clamp(500, 8000);
-        self.history.max_items = self.history.max_items.clamp(1, 100);
+        self.history.max_items = self.history.max_items.clamp(1, HISTORY_MAX_ITEMS);
         self.history.visible_items = self.history.visible_items.clamp(3, 12);
         self.appearance.overlay_opacity = self.appearance.overlay_opacity.clamp(0.72, 1.0);
         self.appearance.corner_radius = self.appearance.corner_radius.clamp(6, 24);
@@ -240,6 +270,17 @@ pub struct HistoryOverlayPayload {
     pub interaction_mode: InteractionMode,
     pub appearance: AppearanceSettings,
     pub total_items: usize,
+    pub shortcut: String,
+    pub image_preview_delay_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImagePreviewPayload {
+    pub id: String,
+    pub data_url: String,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -250,6 +291,11 @@ pub struct PlatformStatus {
     pub accessibility_granted: bool,
     pub hold_release_available: bool,
     pub global_wheel_available: bool,
+    pub tab_hold_available: bool,
+    pub image_history_available: bool,
+    pub history_memory_budget_mib: usize,
+    pub history_performance_warning_items: usize,
+    pub last_crash_available: bool,
     pub version: String,
     pub startup_warnings: Vec<String>,
 }
@@ -266,13 +312,36 @@ mod tests {
     }
 
     #[test]
+    fn defaults_use_tab_switcher() {
+        let x = AppSettings::default();
+        assert_eq!(x.shortcuts.history_selector, "Tab");
+        assert_eq!(x.history.visible_items, 6);
+    }
+
+    #[test]
+    fn migrates_v1_defaults() {
+        let mut x = AppSettings {
+            config_version: 1,
+            ..AppSettings::default()
+        };
+        x.shortcuts.history_selector = "Ctrl+Alt+J".into();
+        x.history.max_items = 20;
+        x.history.visible_items = 5;
+        let x = x.migrate();
+        assert_eq!(x.config_version, 2);
+        assert_eq!(x.shortcuts.history_selector, "Tab");
+        assert_eq!(x.history.max_items, 40);
+        assert_eq!(x.history.visible_items, 6);
+    }
+
+    #[test]
     fn normalization_clamps() {
         let mut x = AppSettings::default();
         x.history.max_items = 999;
         x.preview.max_characters = 1;
         x.advanced.clipboard_poll_interval_ms = 10;
         let x = x.normalized();
-        assert_eq!(x.history.max_items, 100);
+        assert_eq!(x.history.max_items, HISTORY_MAX_ITEMS);
         assert_eq!(x.preview.max_characters, 20);
         assert_eq!(x.advanced.clipboard_poll_interval_ms, 150);
     }

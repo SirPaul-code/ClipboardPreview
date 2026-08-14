@@ -10,7 +10,9 @@ fn parse(value: &str) -> Option<Shortcut> {
 }
 
 fn action(app: &AppHandle, shortcut: &Shortcut, event_state: ShortcutState) {
-    let state = app.state::<AppState>();
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
     let settings = state.settings.read().clone();
     let quick_preview = parse(&settings.shortcuts.quick_preview);
     let history = parse(&settings.shortcuts.history_selector);
@@ -19,7 +21,9 @@ fn action(app: &AppHandle, shortcut: &Shortcut, event_state: ShortcutState) {
 
     if quick_preview.as_ref() == Some(shortcut) && matches!(event_state, ShortcutState::Pressed) {
         let _ = overlays::show_quick(app);
-    } else if history.as_ref() == Some(shortcut) {
+    } else if !settings.shortcuts.history_selector.eq_ignore_ascii_case("Tab")
+        && history.as_ref() == Some(shortcut)
+    {
         match event_state {
             ShortcutState::Pressed => {
                 if !state.selector.lock().active {
@@ -50,17 +54,31 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 }
 
 pub fn register_all(app: &AppHandle) -> Result<(), String> {
-    let settings = app.state::<AppState>().settings.read().clone();
+    let settings = {
+        let Some(state) = app.try_state::<AppState>() else {
+            return Err("Application state is not ready for shortcut registration".into());
+        };
+        let settings = state.settings.read().clone();
+        settings
+    };
+
     let manager = app.global_shortcut();
     manager.unregister_all().map_err(|error| error.to_string())?;
 
-    for shortcut in [
-        &settings.shortcuts.quick_preview,
-        &settings.shortcuts.history_selector,
-        &settings.shortcuts.open_settings,
-        &settings.shortcuts.pause_monitoring,
-    ] {
-        if let Err(error) = manager.register(shortcut.as_str()) {
+    let mut shortcuts = vec![
+        settings.shortcuts.quick_preview.as_str(),
+        settings.shortcuts.open_settings.as_str(),
+        settings.shortcuts.pause_monitoring.as_str(),
+    ];
+    if !settings.shortcuts.history_selector.eq_ignore_ascii_case("Tab") {
+        shortcuts.push(settings.shortcuts.history_selector.as_str());
+    }
+
+    for shortcut in shortcuts {
+        if shortcut.trim().is_empty() {
+            continue;
+        }
+        if let Err(error) = manager.register(shortcut) {
             let _ = manager.unregister_all();
             return Err(format!("Could not register {shortcut}: {error}"));
         }

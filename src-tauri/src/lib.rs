@@ -1,5 +1,6 @@
 mod clipboard;
 mod commands;
+mod diagnostics;
 mod global_input;
 mod history;
 mod models;
@@ -15,23 +16,56 @@ use history::ClipboardHistory;
 use state::AppState;
 use tauri::{Manager, WindowEvent};
 
+fn push_startup_warning(app: &tauri::AppHandle, warning: impl Into<String>) {
+    if let Some(state) = app.try_state::<AppState>() {
+        let warning = warning.into();
+        let mut warnings = state.startup_warnings.write();
+        if !warnings.iter().any(|existing| existing == &warning) {
+            warnings.push(warning);
+        }
+    }
+}
+
+fn create_configured_windows(app: &mut tauri::App) {
+    let configs = app.config().app.windows.clone();
+    for config in configs {
+        diagnostics::mark(&format!("creating webview window {}", config.label));
+        let result = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)
+            .and_then(|builder| builder.build());
+        if let Err(error) = result {
+            let message = format!(
+                "The {} window could not be created: {error}. See Diagnostics for the startup log.",
+                config.label
+            );
+            diagnostics::mark(&message);
+            push_startup_warning(app.handle(), message);
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    diagnostics::install_panic_hook();
+    diagnostics::mark("process entry");
+
+    let hidden_launch = std::env::args().any(|argument| argument == "--hidden");
+
+    let builder = tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
                 .build(),
         )
         .plugin(shortcuts::plugin())
-        .setup(|app| {
-            app.handle().plugin(tauri_plugin_autostart::init(
-                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-                Some(vec!["--hidden"]),
-            ))?;
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--hidden"]),
+        ))
+        .setup(move |app| {
+            diagnostics::mark("setup entered");
 
             let settings = settings_store::load_settings(app.handle());
-            let history = ClipboardHistory::from_items(
+            let history = ClipboardHistory::from_entries(
                 settings_store::load_history(
                     app.handle(),
                     settings.history.persist_history,
@@ -39,49 +73,82 @@ pub fn run() {
                 ),
                 settings.history.max_items,
             );
-            app.manage(AppState::new(settings.clone(), history));
 
-            let mut startup_warnings = Vec::new();
+            if !app.manage(AppState::new(settings.clone(), history)) {
+                diagnostics::mark("FATAL: AppState was already managed unexpectedly");
+                return Ok(());
+            }
+            diagnostics::mark("AppState managed before any webview creation");
+
+            // Persist migrations (v1 defaults -> v2 Tab switcher defaults) without making startup fatal.
+            if let Err(error) = settings_store::save_settings(app.handle(), &settings) {
+                push_startup_warning(
+                    app.handle(),
+                    format!("Settings migration could not be saved: {error}"),
+                );
+            }
+
+            if diagnostics::last_crash_available() {
+                push_startup_warning(
+                    app.handle(),
+                    "Clipboard Preview recorded a previous application panic. Open Advanced → Diagnostics to copy the report for the developer.",
+                );
+            }
+
+            if cfg!(target_os = "macos") && !permissions::accessibility_granted() {
+                push_startup_warning(
+                    app.handle(),
+                    "Tab hold and global wheel selection need macOS Accessibility permission. Sticky mode and modifier-based shortcuts remain available.",
+                );
+            }
 
             if let Err(error) = shortcuts::register_all(app.handle()) {
                 log::error!("Global shortcut registration failed: {error}");
-                startup_warnings.push(format!(
-                    "Global shortcuts could not be registered: {error}. Change the conflicting shortcut in Settings."
-                ));
+                push_startup_warning(
+                    app.handle(),
+                    format!(
+                        "Global shortcuts could not be registered: {error}. Change the conflicting shortcut in Settings."
+                    ),
+                );
             }
 
             if let Err(error) = tray::build(app.handle()) {
                 log::error!("Tray/menu bar initialization failed: {error}");
-                startup_warnings.push(format!(
-                    "Tray/menu bar initialization failed: {error}. The settings window will remain visible."
-                ));
+                push_startup_warning(
+                    app.handle(),
+                    format!(
+                        "Tray/menu bar initialization failed: {error}. Settings will remain available when the window can be opened."
+                    ),
+                );
             }
 
-            if !startup_warnings.is_empty() {
-                let state = app.state::<AppState>();
-                state.startup_warnings.write().extend(startup_warnings);
-            }
+            // Critical startup ordering invariant: state and native integrations are ready before
+            // any frontend is allowed to issue IPC commands.
+            create_configured_windows(app);
 
             clipboard::start(app.handle().clone());
             global_input::start(app.handle().clone());
 
-            let has_startup_warning = {
-                let state = app.state::<AppState>();
-                let has_warning = !state.startup_warnings.read().is_empty();
-                has_warning
-            };
+            let has_startup_warning = app
+                .state::<AppState>()
+                .startup_warnings
+                .read()
+                .iter()
+                .any(|warning| !warning.contains("recorded a previous application panic"));
 
-            if settings.first_run_completed && settings.general.start_hidden && !has_startup_warning {
-                if let Some(window) = app.get_webview_window("settings") {
-                    let _ = window.hide();
-                }
-            } else if has_startup_warning {
-                if let Some(window) = app.get_webview_window("settings") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+            if hidden_launch
+                && settings.first_run_completed
+                && settings.general.start_hidden
+                && !has_startup_warning
+            {
+                diagnostics::mark("autostart --hidden launch: settings remain hidden");
+            } else if let Some(window) = app.get_webview_window("settings") {
+                diagnostics::mark("showing settings window");
+                let _ = window.show();
+                let _ = window.set_focus();
             }
 
+            diagnostics::mark("setup completed");
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -95,6 +162,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::get_history,
+            commands::get_image_preview,
             commands::save_settings,
             commands::clear_history,
             commands::select_history_item,
@@ -105,22 +173,38 @@ pub fn run() {
             commands::open_settings,
             commands::toggle_monitoring,
             commands::platform_status,
+            commands::diagnostics_report,
+            commands::clear_diagnostics,
+            commands::open_diagnostics_folder,
             commands::complete_first_run,
             commands::reset_settings,
             commands::quit_app
-        ])
-        .build(tauri::generate_context!())
-        .expect("failed to build Clipboard Preview")
-        .run(|handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                let state = handle.state::<AppState>();
-                let settings = state.settings.read().clone();
-                if settings.history.clear_on_exit {
-                    settings_store::clear_history_file(handle);
-                } else if settings.history.persist_history {
-                    let items = state.history.lock().items();
-                    let _ = settings_store::save_history(handle, true, &items);
+        ]);
+
+    let app = match builder.build(tauri::generate_context!()) {
+        Ok(app) => app,
+        Err(error) => {
+            diagnostics::mark(&format!("FATAL: Tauri build failed: {error}"));
+            return;
+        }
+    };
+
+    diagnostics::mark("entering Tauri run loop");
+    app.run(|handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            let Some(state) = handle.try_state::<AppState>() else {
+                return;
+            };
+            let settings = state.settings.read().clone();
+            if settings.history.clear_on_exit {
+                settings_store::clear_history_file(handle);
+            } else if settings.history.persist_history {
+                let entries = state.history.lock().entries();
+                if let Err(error) = settings_store::save_history(handle, true, &entries) {
+                    log::warn!("Could not persist clipboard history during shutdown: {error}");
                 }
             }
-        });
+        }
+    });
+    diagnostics::mark_clean_shutdown();
 }

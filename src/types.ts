@@ -1,13 +1,20 @@
-export type ClipboardContentType = 'text' | 'url' | 'code' | 'multiline';
+export type ClipboardContentType = 'text' | 'url' | 'code' | 'multiline' | 'image';
 
 export interface ClipboardItem {
   id: string;
   type: ClipboardContentType;
-  content: string;
+  content: string | null;
   preview: string;
   createdAt: string;
   hash: string;
-  metadata: { characterCount: number; lineCount: number };
+  metadata: {
+    characterCount: number;
+    lineCount: number;
+    width: number | null;
+    height: number | null;
+    byteSize: number;
+  };
+  thumbnailDataUrl: string | null;
 }
 
 export type InteractionMode = 'hold_release' | 'sticky';
@@ -73,6 +80,15 @@ export interface HistoryPayload {
   interactionMode: InteractionMode;
   appearance: AppSettings['appearance'];
   totalItems: number;
+  shortcut: string;
+  imagePreviewDelayMs: number;
+}
+
+export interface ImagePreviewPayload {
+  id: string;
+  dataUrl: string;
+  width: number;
+  height: number;
 }
 
 export interface PlatformStatus {
@@ -81,6 +97,11 @@ export interface PlatformStatus {
   accessibilityGranted: boolean;
   holdReleaseAvailable: boolean;
   globalWheelAvailable: boolean;
+  tabHoldAvailable: boolean;
+  imageHistoryAvailable: boolean;
+  historyMemoryBudgetMib: number;
+  historyPerformanceWarningItems: number;
+  lastCrashAvailable: boolean;
   version: string;
   startupWarnings: string[];
 }
