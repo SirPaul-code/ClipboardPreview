@@ -1,34 +1,48 @@
 # Releasing Clipboard Preview
 
-The release path is deliberately small.
+The release path is deliberately small and uses the same source that contributors build locally.
 
-## 1. Validate
+## 1. Validate the release branch
 
-- CI is green on `main`.
+- Open a PR into `main` and require the complete CI matrix to pass.
+- CI must pass frontend checks plus Rust test/clippy/native build on Windows x64, macOS Apple Silicon, and macOS Intel.
+- `npm run check` also enforces the startup-order invariant: configured WebViews must remain `create=false`, and release `panic = "abort"` is forbidden.
 - Complete the applicable checklist in `docs/manual-testing.md` on platforms you can genuinely test.
 - Review unsigned-build limitations if signing credentials are not configured.
 
 ## 2. Update the version
 
-Keep `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` synchronized. `npm run check:version` rejects a mismatch. Update `CHANGELOG.md` in the same release commit.
+Keep `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` synchronized. `npm run check:version` rejects a mismatch. Update `CHANGELOG.md` in the same release branch.
 
-## 3. Commit and tag
+## 3. Merge, then tag the exact main commit
+
+After the PR is green and merged:
 
 ```bash
-git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json CHANGELOG.md
-git commit -m "release: prepare vX.Y.Z"
+git checkout main
+git pull --ff-only
 git tag vX.Y.Z
-git push origin main
 git push origin vX.Y.Z
 ```
 
-## 4. GitHub Actions
+Do not add one-off publish workflows for normal releases. `.github/workflows/release.yml` is the canonical tag-driven release path.
 
-The tag starts `.github/workflows/release.yml`. It builds Windows x64 plus macOS Apple Silicon and Intel bundles, creates the GitHub Release, and attaches readable installer names.
+## 4. GitHub Actions release build
 
-## 5. Verify
+The `vX.Y.Z` tag starts `.github/workflows/release.yml`. It checks version/tag consistency, builds Windows x64 plus macOS Apple Silicon and Intel bundles, creates the GitHub Release, and attaches readable installer names.
 
-Download generated assets and smoke-install them before announcing the release. A successful CI bundle build is not the same as a manual installation test.
+The release build must come from the tagged merged commit; do not point a release at an older build or copy assets between versions.
+
+## 5. Verify artifacts
+
+Before announcing the release:
+
+- verify the GitHub Release is non-draft and points at the expected tag/commit;
+- verify Windows MSI/NSIS and both macOS architecture assets are attached;
+- download and smoke-install artifacts on every platform you can genuinely access;
+- record untested runtime platforms as CI-compiled/bundled, not manually verified.
+
+A successful CI or bundle build is not the same as a manual installation/runtime test.
 
 ## Signing
 
