@@ -1,6 +1,7 @@
-use std::{collections::HashSet, process::Command};
+use std::{collections::HashSet, io::Cursor, process::Command};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use image::ImageOutputFormat;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
@@ -13,6 +14,9 @@ use crate::{
     overlays, permissions, selection, settings_store, shortcuts,
     state::AppState,
 };
+
+const IMAGE_PREVIEW_MAX_WIDTH: u32 = 1280;
+const IMAGE_PREVIEW_MAX_HEIGHT: u32 = 900;
 
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> AppSettings {
@@ -35,11 +39,20 @@ pub fn get_image_preview(app: AppHandle, id: String) -> Result<Option<ImagePrevi
         return Ok(None);
     };
 
+    let decoded = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+        .map_err(|error| format!("Could not decode clipboard image preview: {error}"))?;
+    let preview = decoded.thumbnail(IMAGE_PREVIEW_MAX_WIDTH, IMAGE_PREVIEW_MAX_HEIGHT);
+    let (preview_width, preview_height) = (preview.width(), preview.height());
+    let mut encoded = Vec::new();
+    preview
+        .write_to(&mut Cursor::new(&mut encoded), ImageOutputFormat::Png)
+        .map_err(|error| format!("Could not encode clipboard image preview: {error}"))?;
+
     Ok(Some(ImagePreviewPayload {
         id,
-        data_url: format!("data:image/png;base64,{}", STANDARD.encode(png)),
-        width: entry.item.metadata.width.unwrap_or(0),
-        height: entry.item.metadata.height.unwrap_or(0),
+        data_url: format!("data:image/png;base64,{}", STANDARD.encode(encoded)),
+        width: preview_width,
+        height: preview_height,
     }))
 }
 
