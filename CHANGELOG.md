@@ -2,6 +2,15 @@
 
 All notable changes to Clipboard Preview are documented here. The project follows semantic versioning and a Keep a Changelog-style structure.
 
+## [1.0.1] - 2026-08-14
+
+### Fixed
+
+- Prevented the application from exiting during startup when one or more global shortcuts cannot be registered on Windows or macOS.
+- Global-shortcut registration now rolls back partial registrations instead of leaving a half-registered shortcut set.
+- Startup integration failures are retained as diagnostic warnings instead of being treated as fatal initialization errors.
+- The settings window stays visible when startup integration warnings occur so shortcut conflicts can be corrected.
+
 ## [1.0.0] - 2026-08-14
 
 ### Added
