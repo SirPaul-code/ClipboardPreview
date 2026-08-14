@@ -1,16 +1,15 @@
-name: Release
+name: Bootstrap v1.0.0
 
 on:
   push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   build-release:
-    name: Release ${{ matrix.name }}
+    name: v1.0.0 ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
@@ -28,19 +27,17 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install frontend dependencies
-        run: npm install
-      - name: Build and upload release bundles
-        uses: tauri-apps/tauri-action@v1
+      - run: npm install
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Clipboard Preview ${{ github.ref_name }}
+          tagName: v1.0.0
+          releaseName: Clipboard Preview v1.0.0
           releaseBody: |
-            Clipboard Preview community build.
+            Clipboard Preview 1.0.0 — your clipboard, one shortcut away.
 
-            These artifacts are unsigned unless signing credentials are explicitly configured. Windows SmartScreen or macOS Gatekeeper may show a warning.
+            Community artifacts are unsigned unless signing credentials are explicitly configured. Windows SmartScreen or macOS Gatekeeper may show a warning before first launch.
           releaseDraft: false
           prerelease: false
           generateReleaseNotes: true
