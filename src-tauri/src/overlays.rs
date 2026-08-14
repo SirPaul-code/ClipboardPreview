@@ -42,8 +42,8 @@ fn position(
 
     // Keep utility windows inside the actual monitor work area. This matters now
     // that the split preview can grow with history instead of using a fixed box.
-    let fitted_width = (width as f64).min((area_width - 16.0).max(220.0));
-    let fitted_height = (height as f64).min((area_height - 16.0).max(120.0));
+    let fitted_width = (width as f64).min((area_width - 16.0).max(1.0));
+    let fitted_height = (height as f64).min((area_height - 16.0).max(1.0));
 
     let (x, y) = match position {
         OverlayPosition::Cursor => (cursor.x / scale + 18.0, cursor.y / scale + 20.0),
@@ -181,15 +181,17 @@ pub fn show_history(app: &AppHandle, focus: bool) -> Result<(), String> {
     const SWITCHER_CHROME_HEIGHT: u32 = 72;
     const SWITCHER_ROW_HEIGHT: u32 = 48;
     const LIST_VERTICAL_PADDING: u32 = 6;
+    const MIN_COMPACT_BODY_HEIGHT: u32 = 96;
     const SPLIT_PREVIEW_EXTRA_HEIGHT: u32 = 96;
 
     let visible_rows = total_items
         .min(settings.history.visible_items)
         .max(1) as u32;
     let list_height = if total_items == 0 {
-        72
+        MIN_COMPACT_BODY_HEIGHT
     } else {
-        visible_rows * SWITCHER_ROW_HEIGHT + LIST_VERTICAL_PADDING
+        (visible_rows * SWITCHER_ROW_HEIGHT + LIST_VERTICAL_PADDING)
+            .max(MIN_COMPACT_BODY_HEIGHT)
     };
     let body_height = if settings.history.large_preview_panel {
         list_height + SPLIT_PREVIEW_EXTRA_HEIGHT
