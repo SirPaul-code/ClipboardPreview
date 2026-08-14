@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 
 use parking_lot::{Mutex, RwLock};
 
@@ -20,7 +20,7 @@ pub struct AppState {
     pub startup_warnings: RwLock<Vec<String>>,
     pub tab_down: AtomicBool,
     pub tab_hold_triggered: AtomicBool,
-    pub replay_tab_events: AtomicUsize,
+    pub replaying_tab: AtomicBool,
     pub native_input_ready: AtomicBool,
 }
 
@@ -36,7 +36,7 @@ impl AppState {
             startup_warnings: RwLock::new(Vec::new()),
             tab_down: AtomicBool::new(false),
             tab_hold_triggered: AtomicBool::new(false),
-            replay_tab_events: AtomicUsize::new(0),
+            replaying_tab: AtomicBool::new(false),
             native_input_ready: AtomicBool::new(false),
         }
     }
