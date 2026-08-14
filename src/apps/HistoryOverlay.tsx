@@ -89,13 +89,6 @@ export function HistoryOverlay() {
   const compactImagePopover =
     !largePreviewPanel && selected?.type === 'image' && (imageLoading || imagePreview);
 
-  const compactPreviewTop = useMemo(() => {
-    if (!payload) return 8;
-    const bodyHeight = Math.max(150, payload.items.length * 48 + 6);
-    const desired = 8 + payload.selectedIndex * 48 - 42;
-    return Math.min(Math.max(desired, 8), Math.max(8, bodyHeight - 196));
-  }, [payload]);
-
   return (
     <main
       className={`overlay-shell switcher ${largePreviewPanel ? 'switcher-split' : 'switcher-compact'}`}
@@ -119,8 +112,15 @@ export function HistoryOverlay() {
         </div>
       </header>
 
-      <div className="switcher-body">
-        <section className="switcher-list">
+      <div
+        className="switcher-body"
+        style={
+          largePreviewPanel
+            ? { gridTemplateColumns: 'minmax(0, .84fr) minmax(0, 1.16fr)' }
+            : undefined
+        }
+      >
+        <section className="switcher-list" style={{ justifyContent: 'flex-start' }}>
           {payload?.items.length ? (
             payload.items.map((item, index) => (
               <ClipboardCard
@@ -181,10 +181,17 @@ export function HistoryOverlay() {
         {compactImagePopover && selected ? (
           <aside
             className={`image-preview-popover ${imagePreview ? 'ready' : ''}`}
-            style={{ top: `${compactPreviewTop}px` }}
+            style={{
+              top: '8px',
+              width: 'min(280px, calc(100% - 16px))',
+              maxHeight: 'calc(100% - 16px)'
+            }}
             aria-hidden="true"
           >
-            <div className="image-preview-popover-stage">
+            <div
+              className="image-preview-popover-stage"
+              style={{ height: 'clamp(64px, calc(100vh - 120px), 220px)' }}
+            >
               {selected.thumbnailDataUrl ? (
                 <img
                   src={imagePreview?.dataUrl ?? selected.thumbnailDataUrl}

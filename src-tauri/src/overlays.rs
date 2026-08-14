@@ -40,33 +40,38 @@ fn position(
     let area_width = area.size.width as f64 / scale;
     let area_height = area.size.height as f64 / scale;
 
+    // Keep utility windows inside the actual monitor work area. This matters now
+    // that the split preview can grow with history instead of using a fixed box.
+    let fitted_width = (width as f64).min((area_width - 16.0).max(1.0));
+    let fitted_height = (height as f64).min((area_height - 16.0).max(1.0));
+
     let (x, y) = match position {
         OverlayPosition::Cursor => (cursor.x / scale + 18.0, cursor.y / scale + 20.0),
         OverlayPosition::ScreenCenter => (
-            area_x + (area_width - width as f64) / 2.0,
-            area_y + (area_height - height as f64) / 2.0,
+            area_x + (area_width - fitted_width) / 2.0,
+            area_y + (area_height - fitted_height) / 2.0,
         ),
         OverlayPosition::TopCenter => (
-            area_x + (area_width - width as f64) / 2.0,
+            area_x + (area_width - fitted_width) / 2.0,
             area_y + 48.0,
         ),
         OverlayPosition::BottomCenter => (
-            area_x + (area_width - width as f64) / 2.0,
-            area_y + area_height - height as f64 - 48.0,
+            area_x + (area_width - fitted_width) / 2.0,
+            area_y + area_height - fitted_height - 48.0,
         ),
     };
 
     let x = x.clamp(
         area_x + 8.0,
-        (area_x + area_width - width as f64 - 8.0).max(area_x + 8.0),
+        (area_x + area_width - fitted_width - 8.0).max(area_x + 8.0),
     );
     let y = y.clamp(
         area_y + 8.0,
-        (area_y + area_height - height as f64 - 8.0).max(area_y + 8.0),
+        (area_y + area_height - fitted_height - 8.0).max(area_y + 8.0),
     );
 
     window
-        .set_size(Size::Logical(LogicalSize::new(width as f64, height as f64)))
+        .set_size(Size::Logical(LogicalSize::new(fitted_width, fitted_height)))
         .map_err(|error| error.to_string())?;
     window
         .set_position(Position::Logical(LogicalPosition::new(x, y)))
@@ -166,18 +171,36 @@ fn history_payload(app: &AppHandle) -> HistoryOverlayPayload {
 }
 
 pub fn show_history(app: &AppHandle, focus: bool) -> Result<(), String> {
-    let settings = app.state::<AppState>().settings.read().clone();
+    let state = app.state::<AppState>();
+    let settings = state.settings.read().clone();
+    let total_items = state.history.lock().len();
 
-    // The CSS uses a 42 px header, a 30 px footer, six pixels of list padding,
-    // and exact 48 px rows. Matching that geometry here keeps the WebView
-    // document from becoming scrollable and prevents partial/extra rows.
-    const SWITCHER_CHROME_HEIGHT: u32 = 78;
+    // visible_items is a ceiling, not a fixed number of empty slots. Compact
+    // mode hugs the actual history. Split mode grows by the same 48 px per
+    // record but reserves extra vertical room so image previews stay useful.
+    const SWITCHER_CHROME_HEIGHT: u32 = 72;
     const SWITCHER_ROW_HEIGHT: u32 = 48;
-    let height = (SWITCHER_CHROME_HEIGHT
-        + settings.history.visible_items as u32 * SWITCHER_ROW_HEIGHT)
-        .clamp(222, 654);
+    const LIST_VERTICAL_PADDING: u32 = 6;
+    const MIN_COMPACT_BODY_HEIGHT: u32 = 96;
+    const SPLIT_PREVIEW_EXTRA_HEIGHT: u32 = 96;
+
+    let visible_rows = total_items
+        .min(settings.history.visible_items)
+        .max(1) as u32;
+    let list_height = if total_items == 0 {
+        MIN_COMPACT_BODY_HEIGHT
+    } else {
+        (visible_rows * SWITCHER_ROW_HEIGHT + LIST_VERTICAL_PADDING)
+            .max(MIN_COMPACT_BODY_HEIGHT)
+    };
+    let body_height = if settings.history.large_preview_panel {
+        list_height + SPLIT_PREVIEW_EXTRA_HEIGHT
+    } else {
+        list_height
+    };
+    let height = SWITCHER_CHROME_HEIGHT + body_height;
     let width = if settings.history.large_preview_panel {
-        760
+        860
     } else {
         500
     };
