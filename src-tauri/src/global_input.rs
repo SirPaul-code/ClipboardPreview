@@ -134,18 +134,20 @@ fn modifier_pressed(state: &AppState) -> bool {
 fn schedule_tab_hold(app: AppHandle) {
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(TAB_HOLD_DELAY_MS));
-        let Some(state) = app.try_state::<AppState>() else {
-            return;
+        let mode = {
+            let Some(state) = app.try_state::<AppState>() else {
+                return;
+            };
+            if !state.tab_down.load(Ordering::SeqCst) || !history_uses_tab(&state) {
+                return;
+            }
+            if state.tab_hold_triggered.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            let mode = state.settings.read().history.interaction_mode.clone();
+            mode
         };
-        if !state.tab_down.load(Ordering::SeqCst) || !history_uses_tab(&state) {
-            return;
-        }
-        if state.tab_hold_triggered.swap(true, Ordering::SeqCst) {
-            return;
-        }
 
-        let mode = state.settings.read().history.interaction_mode.clone();
-        drop(state);
         if let Err(error) = overlays::begin(&app, mode) {
             if let Some(state) = app.try_state::<AppState>() {
                 state.tab_hold_triggered.store(false, Ordering::SeqCst);
@@ -160,11 +162,12 @@ fn replay_tab(app: AppHandle) {
     thread::spawn(move || {
         use rdev::{simulate, EventType, Key};
 
-        let Some(state) = app.try_state::<AppState>() else {
-            return;
-        };
-        state.replaying_tab.store(true, Ordering::SeqCst);
-        drop(state);
+        {
+            let Some(state) = app.try_state::<AppState>() else {
+                return;
+            };
+            state.replaying_tab.store(true, Ordering::SeqCst);
+        }
 
         let press = simulate(&EventType::KeyPress(Key::Tab));
         thread::sleep(Duration::from_millis(8));
