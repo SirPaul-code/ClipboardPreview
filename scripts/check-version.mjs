@@ -11,6 +11,14 @@ if (!rustVersion || new Set(Object.values(versions)).size !== 1) {
   process.exit(1);
 }
 
+if (process.env.GITHUB_REF_TYPE === 'tag') {
+  const expectedTag = `v${pkg.version}`;
+  if (process.env.GITHUB_REF_NAME !== expectedTag) {
+    console.error(`Release tag mismatch: expected ${expectedTag}, got ${process.env.GITHUB_REF_NAME}`);
+    process.exit(1);
+  }
+}
+
 const eagerWindows = (tauri.app?.windows ?? []).filter((window) => window.create !== false);
 if (eagerWindows.length) {
   console.error(
