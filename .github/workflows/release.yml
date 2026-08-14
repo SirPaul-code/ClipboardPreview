@@ -30,6 +30,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install frontend dependencies
         run: npm install
+      - name: Validate version, tag, and startup invariants
+        run: npm run check:version
       - name: Build and upload release bundles
         uses: tauri-apps/tauri-action@v1
         env:
