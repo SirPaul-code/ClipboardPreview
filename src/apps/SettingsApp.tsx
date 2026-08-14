@@ -124,7 +124,7 @@ export function SettingsApp() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark"><Clipboard size={17} /></div>
-          <div><strong>Clipboard Preview</strong><span>v{status?.version ?? '1.1.0'}</span></div>
+          <div><strong>Clipboard Preview</strong><span>v{status?.version ?? '1.2.0'}</span></div>
         </div>
         <nav>
           {tabs.map(([id, label, Icon]) => (
@@ -274,7 +274,7 @@ export function SettingsApp() {
               <div className="about">
                 <div className="about-icon"><Clipboard size={25} /></div>
                 <h3>Clipboard Preview</h3>
-                <p className="version">Version {status?.version ?? '1.1.0'}</p>
+                <p className="version">Version {status?.version ?? '1.2.0'}</p>
                 <p>A lightweight text and image clipboard switcher for Windows and macOS.</p>
                 <div className="privacy-note"><Shield size={18} /><div><strong>Local by default</strong><span>No telemetry, accounts, cloud sync, or remote clipboard API.</span></div></div>
                 <div className="about-links"><a href="https://github.com/SirPaul-code/ClipboardPreview">GitHub</a><a href="https://github.com/SirPaul-code/ClipboardPreview/issues">Report an issue</a><span>MIT License</span></div>
