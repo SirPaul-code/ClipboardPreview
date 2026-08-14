@@ -1,6 +1,6 @@
 [package]
 name = "clipboard-preview"
-version = "1.0.1"
+version = "1.1.0"
 description = "A fast, minimal clipboard preview and history utility for Windows and macOS."
 authors = ["SirPaul-code"]
 edition = "2021"
@@ -21,8 +21,10 @@ tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-log = "2"
 arboard = "3.6"
+base64 = "0.22"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 hex = "0.4"
+image = { version = "0.24", default-features = false, features = ["png"] }
 log = "0.4"
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }
@@ -31,11 +33,10 @@ sha2 = "0.10"
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
-rdev = "0.5.3"
+rdev = { version = "0.5.3", features = ["unstable_grab"] }
 
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = "s"
-panic = "abort"
 strip = true
