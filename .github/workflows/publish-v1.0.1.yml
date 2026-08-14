@@ -1,0 +1,60 @@
+name: Publish v1.0.1
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create v1.0.1 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view v1.0.1 >/dev/null 2>&1; then
+            echo "Release v1.0.1 already exists."
+          else
+            gh release create v1.0.1 \
+              --target "$GITHUB_SHA" \
+              --title "Clipboard Preview v1.0.1" \
+              --notes "Fixes a startup failure when a global shortcut or tray integration cannot initialize. Clipboard Preview now stays open and shows a diagnostic warning so the conflicting shortcut can be changed.\n\nCommunity artifacts are unsigned unless signing credentials are explicitly configured. Windows SmartScreen or macOS Gatekeeper may show a warning before first launch."
+          fi
+
+  build-release:
+    name: v1.0.1 ${{ matrix.name }}
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+          - name: macOS Apple Silicon
+            os: macos-15
+          - name: macOS Intel
+            os: macos-15-intel
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm install
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v1.0.1
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          releaseAssetNamePattern: ClipboardPreview-[version]-[platform]-[arch][setup][ext]
