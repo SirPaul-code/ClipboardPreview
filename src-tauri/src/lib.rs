@@ -67,7 +67,8 @@ pub fn run() {
 
             let has_startup_warning = {
                 let state = app.state::<AppState>();
-                !state.startup_warnings.read().is_empty()
+                let has_warning = !state.startup_warnings.read().is_empty();
+                has_warning
             };
 
             if settings.first_run_completed && settings.general.start_hidden && !has_startup_warning {
