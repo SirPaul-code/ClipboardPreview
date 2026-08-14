@@ -53,7 +53,7 @@ export function ClipboardCard({
           <img src={item.thumbnailDataUrl} alt="Clipboard thumbnail" />
         </div>
       ) : (
-        <div className="clip-type-marker" aria-hidden="true">
+        <div className="clip-icon clip-kind" aria-hidden="true">
           {markers[item.type]}
         </div>
       )}
