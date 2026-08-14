@@ -320,8 +320,10 @@ mod tests {
 
     #[test]
     fn migrates_v1_defaults() {
-        let mut x = AppSettings::default();
-        x.config_version = 1;
+        let mut x = AppSettings {
+            config_version: 1,
+            ..AppSettings::default()
+        };
         x.shortcuts.history_selector = "Ctrl+Alt+J".into();
         x.history.max_items = 20;
         x.history.visible_items = 5;
