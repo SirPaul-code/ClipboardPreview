@@ -48,7 +48,7 @@ impl Default for AppSettings {
             shortcuts: ShortcutSettings { quick_preview: "Ctrl+Alt+K".into(), history_selector: "Ctrl+Alt+J".into(), open_settings: "Ctrl+Alt+P".into(), pause_monitoring: "Ctrl+Alt+Shift+P".into() },
             preview: PreviewSettings { max_characters: 120, max_lines: 4, width: 460, font_size: 14, text_wrapping: true, position: OverlayPosition::Cursor, animation: true, animation_speed: AnimationSpeed::Fast, auto_hide_ms: 1800, show_content_type: true, show_character_count: false },
             history: HistorySettings { max_items: 20, visible_items: 5, scroll_direction: ScrollDirection::Natural, wrap_selection: false, move_selected_to_top: true, persist_history: false, clear_on_exit: false, interaction_mode: InteractionMode::HoldRelease },
-            appearance: AppearanceSettings { theme: ThemePreference::System, overlay_opacity: .96, corner_radius: 13, compact_spacing: false, font_size: 14, reduced_motion: false },
+            appearance: AppearanceSettings { theme: ThemePreference::System, overlay_opacity: 0.96, corner_radius: 13, compact_spacing: false, font_size: 14, reduced_motion: false },
             advanced: AdvancedSettings { debug_logging: false, clipboard_poll_interval_ms: 350 },
         }
     }
@@ -64,7 +64,7 @@ impl AppSettings {
         self.preview.auto_hide_ms = self.preview.auto_hide_ms.clamp(500, 8000);
         self.history.max_items = self.history.max_items.clamp(1, 100);
         self.history.visible_items = self.history.visible_items.clamp(3, 12);
-        self.appearance.overlay_opacity = self.appearance.overlay_opacity.clamp(.72, 1.0);
+        self.appearance.overlay_opacity = self.appearance.overlay_opacity.clamp(0.72, 1.0);
         self.appearance.corner_radius = self.appearance.corner_radius.clamp(6, 24);
         self.appearance.font_size = self.appearance.font_size.clamp(11, 20);
         self.advanced.clipboard_poll_interval_ms = self.advanced.clipboard_poll_interval_ms.clamp(150, 1500);
