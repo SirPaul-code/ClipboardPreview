@@ -38,6 +38,8 @@ export function HistoryOverlay() {
         try {
           const preview = await backend.imagePreview(selected.id);
           if (!cancelled) setImagePreview(preview);
+        } catch {
+          if (!cancelled) setImagePreview(null);
         } finally {
           if (!cancelled) setImageLoading(false);
         }
@@ -83,10 +85,20 @@ export function HistoryOverlay() {
 
   const shortcut = payload?.shortcut ?? 'Tab';
   const holdMode = payload?.interactionMode === 'hold_release';
+  const largePreviewPanel = payload?.largePreviewPanel ?? true;
+  const compactImagePopover =
+    !largePreviewPanel && selected?.type === 'image' && (imageLoading || imagePreview);
+
+  const compactPreviewTop = useMemo(() => {
+    if (!payload) return 8;
+    const bodyHeight = Math.max(150, payload.items.length * 48 + 6);
+    const desired = 8 + payload.selectedIndex * 48 - 42;
+    return Math.min(Math.max(desired, 8), Math.max(8, bodyHeight - 196));
+  }, [payload]);
 
   return (
     <main
-      className="overlay-shell switcher"
+      className={`overlay-shell switcher ${largePreviewPanel ? 'switcher-split' : 'switcher-compact'}`}
       style={
         payload
           ? ({
@@ -102,7 +114,7 @@ export function HistoryOverlay() {
           <div className="switcher-subtitle">Recent text and images</div>
         </div>
         <div className="switcher-header-meta">
-          <span>{payload?.totalItems ?? 0} items</span>
+          <span>{payload?.totalItems ?? 0}</span>
           <kbd>{shortcut}</kbd>
         </div>
       </header>
@@ -126,49 +138,74 @@ export function HistoryOverlay() {
           )}
         </section>
 
-        <aside className="switcher-detail">
-          {!selected ? (
-            <div className="detail-empty">Nothing selected</div>
-          ) : selected.type === 'image' ? (
-            <div className="image-detail">
-              <div className={`image-stage ${imagePreview ? 'ready' : ''}`}>
-                {selected.thumbnailDataUrl ? (
-                  <img
-                    src={imagePreview?.dataUrl ?? selected.thumbnailDataUrl}
-                    alt="Selected clipboard item"
-                  />
-                ) : (
-                  <ImageIcon size={32} />
-                )}
+        {largePreviewPanel ? (
+          <aside className="switcher-detail">
+            {!selected ? (
+              <div className="detail-empty">Nothing selected</div>
+            ) : selected.type === 'image' ? (
+              <div className="image-detail">
+                <div className={`image-stage ${imagePreview ? 'ready' : ''}`}>
+                  {selected.thumbnailDataUrl ? (
+                    <img
+                      src={imagePreview?.dataUrl ?? selected.thumbnailDataUrl}
+                      alt="Selected clipboard item"
+                    />
+                  ) : (
+                    <ImageIcon size={32} />
+                  )}
+                </div>
+                <div className="detail-caption">
+                  <strong>
+                    {selected.metadata.width}×{selected.metadata.height}
+                  </strong>
+                  <span>
+                    {imagePreview
+                      ? 'Preview'
+                      : imageLoading
+                        ? 'Loading…'
+                        : 'Pause to preview'}
+                  </span>
+                </div>
               </div>
-              <div className="detail-caption">
-                <strong>
-                  {selected.metadata.width}×{selected.metadata.height}
-                </strong>
-                <span>
-                  {imagePreview
-                    ? 'Full preview'
-                    : imageLoading
-                      ? 'Loading preview…'
-                      : 'Hold steady to preview'}
-                </span>
+            ) : (
+              <div className="text-detail">
+                <div className="detail-kind">{selected.type}</div>
+                <div className={`detail-text ${selected.type === 'code' ? 'mono' : ''}`}>
+                  {selected.content || selected.preview || 'Empty text'}
+                </div>
               </div>
+            )}
+          </aside>
+        ) : null}
+
+        {compactImagePopover && selected ? (
+          <aside
+            className={`image-preview-popover ${imagePreview ? 'ready' : ''}`}
+            style={{ top: `${compactPreviewTop}px` }}
+            aria-hidden="true"
+          >
+            <div className="image-preview-popover-stage">
+              {selected.thumbnailDataUrl ? (
+                <img
+                  src={imagePreview?.dataUrl ?? selected.thumbnailDataUrl}
+                  alt=""
+                />
+              ) : (
+                <ImageIcon size={28} />
+              )}
             </div>
-          ) : (
-            <div className="text-detail">
-              <div className="detail-kind">{selected.type}</div>
-              <div className={`detail-text ${selected.type === 'code' ? 'mono' : ''}`}>
-                {selected.content || selected.preview || 'Empty text'}
-              </div>
+            <div className="image-preview-popover-meta">
+              <strong>{selected.metadata.width}×{selected.metadata.height}</strong>
+              <span>{imagePreview ? 'Image preview' : 'Loading…'}</span>
             </div>
-          )}
-        </aside>
+          </aside>
+        ) : null}
       </div>
 
       <footer className="switcher-footer">
         {holdMode
-          ? `Hold ${shortcut} · scroll to move · release to select`
-          : '↑ ↓ or scroll to move · Enter select · Esc cancel'}
+          ? `Hold ${shortcut} · scroll · release`
+          : '↑ ↓ / scroll · Enter select · Esc cancel'}
       </footer>
     </main>
   );

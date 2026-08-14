@@ -56,6 +56,7 @@ export interface AppSettings {
     persistHistory: boolean;
     clearOnExit: boolean;
     interactionMode: InteractionMode;
+    largePreviewPanel: boolean;
   };
   appearance: {
     theme: 'system' | 'light' | 'dark';
@@ -82,6 +83,7 @@ export interface HistoryPayload {
   totalItems: number;
   shortcut: string;
   imagePreviewDelayMs: number;
+  largePreviewPanel: boolean;
 }
 
 export interface ImagePreviewPayload {

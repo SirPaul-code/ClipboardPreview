@@ -124,7 +124,7 @@ export function SettingsApp() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark"><Clipboard size={17} /></div>
-          <div><strong>Clipboard Preview</strong><span>v{status?.version ?? '1.1.0'}</span></div>
+          <div><strong>Clipboard Preview</strong><span>v{status?.version ?? '1.2.0'}</span></div>
         </div>
         <nav>
           {tabs.map(([id, label, Icon]) => (
@@ -201,6 +201,10 @@ export function SettingsApp() {
                 <Row label="Wrap selection"><Toggle checked={settings.history.wrapSelection} onChange={(value) => patch('history', { ...settings.history, wrapSelection: value })} /></Row>
               </Section>
 
+              <Section title="Layout" description="Choose between the split detail view and a smaller row-only switcher.">
+                <Row label="Large preview panel" hint="Off keeps the switcher compact. Images still open a small floating preview after you pause on the selected row."><Toggle checked={settings.history.largePreviewPanel} onChange={(value) => patch('history', { ...settings.history, largePreviewPanel: value })} /></Row>
+              </Section>
+
               <Section title="Quick Preview">
                 <Row label="Maximum characters"><NumberField value={settings.preview.maxCharacters} min={20} max={2000} onChange={(value) => patch('preview', { ...settings.preview, maxCharacters: value })} /></Row>
                 <Row label="Maximum lines"><NumberField value={settings.preview.maxLines} min={1} max={20} onChange={(value) => patch('preview', { ...settings.preview, maxLines: value })} /></Row>
@@ -270,10 +274,11 @@ export function SettingsApp() {
               <div className="about">
                 <div className="about-icon"><Clipboard size={25} /></div>
                 <h3>Clipboard Preview</h3>
-                <p className="version">Version {status?.version ?? '1.1.0'}</p>
+                <p className="version">Version {status?.version ?? '1.2.0'}</p>
                 <p>A lightweight text and image clipboard switcher for Windows and macOS.</p>
+                <p>Made by <a href="https://github.com/SirPaul-code"><strong>Pavol Duplinsky</strong></a> · <a href="https://github.com/SirPaul-code">@SirPaul-code</a></p>
                 <div className="privacy-note"><Shield size={18} /><div><strong>Local by default</strong><span>No telemetry, accounts, cloud sync, or remote clipboard API.</span></div></div>
-                <div className="about-links"><a href="https://github.com/SirPaul-code/ClipboardPreview">GitHub</a><a href="https://github.com/SirPaul-code/ClipboardPreview/issues">Report an issue</a><span>MIT License</span></div>
+                <div className="about-links"><a href="https://github.com/SirPaul-code/ClipboardPreview">GitHub</a><a href="https://github.com/SirPaul-code/ClipboardPreview/releases">Releases</a><a href="https://github.com/SirPaul-code/ClipboardPreview/issues">Report an issue</a><a href="https://github.com/SirPaul-code/ClipboardPreview/blob/main/LICENSE">MIT License</a></div>
               </div>
             </Section>
           )}

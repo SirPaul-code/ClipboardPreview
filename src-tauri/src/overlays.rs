@@ -161,13 +161,28 @@ fn history_payload(app: &AppHandle) -> HistoryOverlayPayload {
         total_items,
         shortcut: settings.shortcuts.history_selector,
         image_preview_delay_ms: IMAGE_PREVIEW_DELAY_MS,
+        large_preview_panel: settings.history.large_preview_panel,
     }
 }
 
 pub fn show_history(app: &AppHandle, focus: bool) -> Result<(), String> {
     let settings = app.state::<AppState>().settings.read().clone();
-    let height = (146 + settings.history.visible_items as u32 * 52).clamp(360, 700);
-    position(app, "history-overlay", 760, height, &settings.preview.position)?;
+
+    // Keep native window sizing in sync with the CSS row geometry. The old
+    // formula left the WebView a few pixels short for some image/detail sizes,
+    // which made the document itself scroll and exposed part of another row.
+    const SWITCHER_CHROME_HEIGHT: u32 = 100;
+    const SWITCHER_ROW_HEIGHT: u32 = 48;
+    let height = (SWITCHER_CHROME_HEIGHT
+        + settings.history.visible_items as u32 * SWITCHER_ROW_HEIGHT)
+        .clamp(244, 680);
+    let width = if settings.history.large_preview_panel {
+        760
+    } else {
+        500
+    };
+
+    position(app, "history-overlay", width, height, &settings.preview.position)?;
     let window = app
         .get_webview_window("history-overlay")
         .ok_or("History overlay missing")?;
