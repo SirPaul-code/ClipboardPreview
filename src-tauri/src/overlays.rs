@@ -84,9 +84,12 @@ pub fn show_quick(app: &AppHandle) -> Result<(), String> {
         .lock()
         .get(0)
         .map(|entry| entry.frontend_item());
-    let is_image = item
-        .as_ref()
-        .is_some_and(|item| matches!(item.content_type, crate::models::ClipboardContentType::Image));
+    let is_image = item.as_ref().is_some_and(|item| {
+        matches!(
+            &item.content_type,
+            crate::models::ClipboardContentType::Image
+        )
+    });
     let payload = QuickPreviewPayload {
         item,
         settings: settings.preview.clone(),
