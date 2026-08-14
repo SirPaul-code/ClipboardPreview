@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Clipboard Preview",
+  "version": "1.0.0",
+  "identifier": "io.github.sirpaulcode.clipboardpreview",
+  "build": {"beforeDevCommand":"npm run dev","devUrl":"http://127.0.0.1:1420","beforeBuildCommand":"npm run build","frontendDist":"../dist"},
+  "app": {
+    "windows": [
+      {"label":"settings","title":"Clipboard Preview","width":900,"height":650,"minWidth":720,"minHeight":520,"center":true,"resizable":true,"visible":true},
+      {"label":"quick-preview","title":"Clipboard Preview","width":460,"height":110,"resizable":false,"decorations":false,"transparent":true,"alwaysOnTop":true,"skipTaskbar":true,"visible":false,"shadow":false},
+      {"label":"history-overlay","title":"Clipboard History","width":520,"height":430,"resizable":false,"decorations":false,"transparent":true,"alwaysOnTop":true,"skipTaskbar":true,"visible":false,"shadow":false}
+    ],
+    "security":{"csp":"default-src 'self'; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"}
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Utility",
+    "shortDescription": "Your clipboard, one shortcut away.",
+    "longDescription": "A fast, minimal clipboard preview and recent-history utility for Windows and macOS.",
+    "icon": ["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png","icons/icon.icns","icons/icon.ico"],
+    "macOS":{"minimumSystemVersion":"11.0"},
+    "windows":{"nsis":{"installMode":"currentUser"}}
+  }
+}

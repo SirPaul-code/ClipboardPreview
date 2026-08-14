@@ -1,0 +1,45 @@
+name: Bug report
+description: Report a reproducible Clipboard Preview problem.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Remove passwords, tokens, private clipboard contents, and other sensitive data from screenshots or logs."
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "Windows 11 24H2 / macOS 15.x"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Clipboard Preview version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / additional context
+      description: "Optional. Sanitize clipboard contents and secrets first."
