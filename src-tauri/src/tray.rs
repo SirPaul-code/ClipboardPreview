@@ -20,7 +20,7 @@ pub fn build(app:&AppHandle)->Result<(),String>{
         "history"=>{let _=overlays::begin(app,crate::models::InteractionMode::Sticky);},
         "pause"=>{let _=commands::toggle_monitoring(app.clone());},
         "clear"=>{let _=commands::clear_history(app.clone());},
-        "startup"=>{let state=app.state::<AppState>();let mut s=state.settings.write();s.general.launch_at_startup=!s.general.launch_at_startup;if s.general.launch_at_startup{let _=app.autolaunch().enable();}else{let _=app.autolaunch().disable();}let _=crate::settings_store::save_settings(app,&s);},
+        "startup"=>{let state=app.state::<AppState>();let mut s=state.settings.write();s.general.launch_at_startup = !s.general.launch_at_startup;if s.general.launch_at_startup{let _=app.autolaunch().enable();}else{let _=app.autolaunch().disable();}let _=crate::settings_store::save_settings(app,&s);},
         "quit"=>app.exit(0), _=>{}
     }).build(app).map_err(|e|e.to_string())?;
     let visible=app.state::<AppState>().settings.read().general.show_tray_icon;
