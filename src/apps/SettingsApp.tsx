@@ -18,10 +18,15 @@ export function SettingsApp() {
   const [status, setStatus] = useState<PlatformStatus | null>(null);
   const [tab, setTab] = useState<Tab>('general');
   const [message, setMessage] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(async () => {
-    const [s, h, p] = await Promise.all([backend.settings(), backend.history(), backend.status()]);
-    setSettings(s); setHistory(h); setStatus(p);
+    try {
+      const [s, h, p] = await Promise.all([backend.settings(), backend.history(), backend.status()]);
+      setSettings(s); setHistory(h); setStatus(p); setLoadError('');
+    } catch (error) {
+      setLoadError(String(error));
+    }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -39,7 +44,7 @@ export function SettingsApp() {
     if (settings) void save({ ...settings, [key]: value });
   }, [settings, save]);
 
-  if (!settings) return <div className="loading">Loading Clipboard Preview…</div>;
+  if (!settings) return <div className="loading">{loadError ? `Clipboard Preview backend failed to initialize: ${loadError}` : 'Loading Clipboard Preview…'}</div>;
   if (!settings.firstRunCompleted) return <FirstRun settings={settings} status={status} onDone={async () => setSettings(await backend.completeFirstRun())} />;
 
   return <div className={`settings-app theme-${settings.appearance.theme}`}>
@@ -51,6 +56,7 @@ export function SettingsApp() {
     <main className="settings-main">
       <header className="page-header"><div><h1>{tabs.find(x => x[0] === tab)?.[1]}</h1><p>Fast, local clipboard behavior without unnecessary background services.</p></div><span className={message && message !== 'Saved' ? 'save-state error' : 'save-state'}>{message}</span></header>
       <div className="page-body">
+        {status?.startupWarnings?.length ? <div className="warning">{status.startupWarnings.join(' ')}</div> : null}
         {tab === 'general' && <>
           <Section title="Application">
             <Row label="Launch at startup"><Toggle checked={settings.general.launchAtStartup} onChange={v => patch('general', { ...settings.general, launchAtStartup: v })}/></Row>
@@ -102,12 +108,12 @@ export function SettingsApp() {
           </Section>
           <Section title="Reset"><div className="action-row"><button className="danger-quiet" onClick={async () => { if (confirm('Reset Clipboard Preview to defaults?')) setSettings(await backend.reset()); }}><Trash2 size={16}/> Reset settings to defaults</button></div></Section>
         </>}
-        {tab === 'about' && <Section title="Clipboard Preview"><div className="about"><div className="about-icon"><Clipboard size={28}/></div><h3>Clipboard Preview</h3><p className="version">Version {status?.version ?? '1.0.0'}</p><p>A fast, minimal clipboard preview and history utility for Windows and macOS.</p><div className="privacy-note"><Shield size={18}/><div><strong>Local by default</strong><span>No telemetry, accounts, cloud sync, or remote clipboard API.</span></div></div><div className="about-links"><a href="https://github.com/SirPaul-code/ClipboardPreview">GitHub</a><a href="https://github.com/SirPaul-code/ClipboardPreview/issues">Report an issue</a><span>MIT License</span></div></div></Section>}
+        {tab === 'about' && <Section title="Clipboard Preview"><div className="about"><div className="about-icon"><Clipboard size={28}/></div><h3>Clipboard Preview</h3><p className="version">Version {status?.version ?? '1.0.1'}</p><p>A fast, minimal clipboard preview and history utility for Windows and macOS.</p><div className="privacy-note"><Shield size={18}/><div><strong>Local by default</strong><span>No telemetry, accounts, cloud sync, or remote clipboard API.</span></div></div><div className="about-links"><a href="https://github.com/SirPaul-code/ClipboardPreview">GitHub</a><a href="https://github.com/SirPaul-code/ClipboardPreview/issues">Report an issue</a><span>MIT License</span></div></div></Section>}
       </div>
     </main>
   </div>;
 }
 
 function FirstRun({ settings, status, onDone }: { settings: AppSettings; status: PlatformStatus | null; onDone: () => void }) {
-  return <main className="first-run"><div className="first-card"><div className="hero-mark"><Clipboard size={28}/></div><h1>Clipboard Preview</h1><p className="hero-copy">Your clipboard, one shortcut away.</p><div className="first-shortcuts"><div><span>Quick Preview</span><kbd>{settings.shortcuts.quickPreview}</kbd></div><div><span>Clipboard History</span><kbd>{settings.shortcuts.historySelector}</kbd></div></div>{status?.accessibilityRequired && !status.accessibilityGranted && <p className="permission-copy">On macOS, hold-and-scroll selection needs Accessibility permission for global mouse-wheel input. Sticky mode works without it.</p>}<button className="primary" onClick={onDone}>Start Clipboard Preview</button><p className="local-copy"><Shield size={14}/> Everything stays local.</p></div></main>;
+  return <main className="first-run"><div className="first-card"><div className="hero-mark"><Clipboard size={28}/></div><h1>Clipboard Preview</h1><p className="hero-copy">Your clipboard, one shortcut away.</p><div className="first-shortcuts"><div><span>Quick Preview</span><kbd>{settings.shortcuts.quickPreview}</kbd></div><div><span>Clipboard History</span><kbd>{settings.shortcuts.historySelector}</kbd></div></div>{status?.startupWarnings?.length ? <div className="warning">{status.startupWarnings.join(' ')}</div> : null}{status?.accessibilityRequired && !status.accessibilityGranted && <p className="permission-copy">On macOS, hold-and-scroll selection needs Accessibility permission for global mouse-wheel input. Sticky mode works without it.</p>}<button className="primary" onClick={onDone}>Start Clipboard Preview</button><p className="local-copy"><Shield size={14}/> Everything stays local.</p></div></main>;
 }
