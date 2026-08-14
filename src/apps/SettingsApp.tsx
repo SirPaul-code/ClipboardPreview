@@ -201,6 +201,10 @@ export function SettingsApp() {
                 <Row label="Wrap selection"><Toggle checked={settings.history.wrapSelection} onChange={(value) => patch('history', { ...settings.history, wrapSelection: value })} /></Row>
               </Section>
 
+              <Section title="Layout" description="Choose between the split detail view and a smaller row-only switcher.">
+                <Row label="Large preview panel" hint="Off keeps the switcher compact. Images still open a small floating preview after you pause on the selected row."><Toggle checked={settings.history.largePreviewPanel} onChange={(value) => patch('history', { ...settings.history, largePreviewPanel: value })} /></Row>
+              </Section>
+
               <Section title="Quick Preview">
                 <Row label="Maximum characters"><NumberField value={settings.preview.maxCharacters} min={20} max={2000} onChange={(value) => patch('preview', { ...settings.preview, maxCharacters: value })} /></Row>
                 <Row label="Maximum lines"><NumberField value={settings.preview.maxLines} min={1} max={20} onChange={(value) => patch('preview', { ...settings.preview, maxLines: value })} /></Row>
