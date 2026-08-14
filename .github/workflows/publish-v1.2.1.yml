@@ -1,0 +1,84 @@
+name: Publish v1.2.1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v1.2.1.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-v1.2.1
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: v1.2.1
+  TARGET_SHA: eacfc9f50d4b597735f014683b4fe4976619ebe2
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create v1.2.1 release at validated merge commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_SHA" \
+              --title "Clipboard Preview v1.2.1" \
+              --notes "Clipboard Preview v1.2.1 makes the clipboard switcher grow with the actual number of visible history entries instead of reserving empty slots. Compact mode hugs the list, the split image preview gets more usable space, delayed compact previews adapt to the current overlay, and the whole utility is constrained to the active monitor work area. Built from the fully validated merge commit on Windows and both supported macOS architectures."
+          fi
+
+  build-release:
+    needs: prepare-release
+    name: v1.2.1 ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+          - name: macOS Apple Silicon
+            os: macos-15
+          - name: macOS Intel
+            os: macos-15-intel
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Validate version and startup invariants
+        shell: bash
+        env:
+          GITHUB_REF_TYPE: tag
+          GITHUB_REF_NAME: v1.2.1
+        run: npm run check:version
+      - name: Verify locked Rust dependency graph
+        run: cargo metadata --locked --manifest-path src-tauri/Cargo.toml --no-deps
+      - name: Build and upload release bundles
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v1.2.1
+          releaseName: Clipboard Preview v1.2.1
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          releaseAssetNamePattern: ClipboardPreview-[version]-[platform]-[arch][setup][ext]
