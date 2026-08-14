@@ -1,4 +1,3 @@
-import { Code2, Image as ImageIcon, Link2, Text } from 'lucide-react';
 import type { ClipboardItem } from '../types';
 
 const labels = {
@@ -9,18 +8,19 @@ const labels = {
   image: 'Image'
 } as const;
 
+const markers = {
+  text: 'TXT',
+  url: 'URL',
+  code: 'COD',
+  multiline: 'TXT',
+  image: 'IMG'
+} as const;
+
 function formatBytes(bytes: number) {
   if (!bytes) return '';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function TypeIcon({ item }: { item: ClipboardItem }) {
-  if (item.type === 'image') return <ImageIcon size={14} />;
-  if (item.type === 'url') return <Link2 size={14} />;
-  if (item.type === 'code') return <Code2 size={14} />;
-  return <Text size={14} />;
 }
 
 export function ClipboardCard({
@@ -36,17 +36,25 @@ export function ClipboardCard({
     item.type === 'image' && item.metadata.width && item.metadata.height
       ? `${item.metadata.width}×${item.metadata.height}`
       : null;
-  const meta = imageMeta ?? (item.metadata.characterCount ? `${item.metadata.characterCount} ch` : formatBytes(item.metadata.byteSize));
+  const meta =
+    imageMeta ??
+    (item.metadata.characterCount
+      ? `${item.metadata.characterCount} ch`
+      : formatBytes(item.metadata.byteSize));
 
   return (
-    <button type="button" className={`clip-card ${selected ? 'selected' : ''}`} onClick={onClick}>
+    <button
+      type="button"
+      className={`clip-card ${selected ? 'selected' : ''}`}
+      onClick={onClick}
+    >
       {item.type === 'image' && item.thumbnailDataUrl ? (
         <div className="clip-thumb">
           <img src={item.thumbnailDataUrl} alt="Clipboard thumbnail" />
         </div>
       ) : (
-        <div className={`clip-icon ${item.type}`}>
-          <TypeIcon item={item} />
+        <div className="clip-type-marker" aria-hidden="true">
+          {markers[item.type]}
         </div>
       )}
       <div className="clip-main">
