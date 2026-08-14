@@ -22,6 +22,10 @@ pub struct AppState {
     pub tab_hold_triggered: AtomicBool,
     pub replaying_tab: AtomicBool,
     pub native_input_ready: AtomicBool,
+    pub alt_down: AtomicBool,
+    pub control_down: AtomicBool,
+    pub shift_down: AtomicBool,
+    pub meta_down: AtomicBool,
 }
 
 impl AppState {
@@ -38,6 +42,10 @@ impl AppState {
             tab_hold_triggered: AtomicBool::new(false),
             replaying_tab: AtomicBool::new(false),
             native_input_ready: AtomicBool::new(false),
+            alt_down: AtomicBool::new(false),
+            control_down: AtomicBool::new(false),
+            shift_down: AtomicBool::new(false),
+            meta_down: AtomicBool::new(false),
         }
     }
 }
