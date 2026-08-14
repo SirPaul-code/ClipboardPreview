@@ -15,16 +15,19 @@ pub fn start(app: AppHandle) {
         let mut clipboard: Option<Clipboard> = None;
 
         loop {
-            let Some(state) = app.try_state::<AppState>() else {
-                thread::sleep(Duration::from_millis(250));
-                continue;
+            let (paused, interval, max, persist) = {
+                let Some(state) = app.try_state::<AppState>() else {
+                    thread::sleep(Duration::from_millis(250));
+                    continue;
+                };
+                let settings = state.settings.read().clone();
+                (
+                    settings.general.monitoring_paused,
+                    settings.advanced.clipboard_poll_interval_ms,
+                    settings.history.max_items,
+                    settings.history.persist_history,
+                )
             };
-            let settings = state.settings.read().clone();
-            let paused = settings.general.monitoring_paused;
-            let interval = settings.advanced.clipboard_poll_interval_ms;
-            let max = settings.history.max_items;
-            let persist = settings.history.persist_history;
-            drop(state);
 
             if !paused {
                 if clipboard.is_none() {
