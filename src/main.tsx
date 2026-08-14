@@ -5,7 +5,6 @@ import { SettingsApp } from './apps/SettingsApp';
 import { QuickPreview } from './apps/QuickPreview';
 import { HistoryOverlay } from './apps/HistoryOverlay';
 import './styles.css';
-import './switcher-v12.css';
 
 const label = getCurrentWindow().label;
 const App = label === 'quick-preview' ? QuickPreview : label === 'history-overlay' ? HistoryOverlay : SettingsApp;
