@@ -1,11 +1,15 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, process::Command};
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::{
-    clipboard,
-    models::{AppSettings, InteractionMode, PlatformStatus},
+    clipboard, diagnostics,
+    models::{
+        AppSettings, ImagePreviewPayload, InteractionMode, PlatformStatus,
+        HISTORY_MEMORY_BUDGET_MIB, HISTORY_PERF_WARNING_ITEMS,
+    },
     overlays, permissions, selection, settings_store, shortcuts,
     state::AppState,
 };
@@ -20,6 +24,25 @@ pub fn get_history(app: AppHandle) -> Vec<crate::models::ClipboardItem> {
     app.state::<AppState>().history.lock().items()
 }
 
+#[tauri::command]
+pub fn get_image_preview(app: AppHandle, id: String) -> Result<Option<ImagePreviewPayload>, String> {
+    let state = app.state::<AppState>();
+    let entry = state.history.lock().find(&id);
+    let Some(entry) = entry else {
+        return Ok(None);
+    };
+    let Some(png) = entry.image_png else {
+        return Ok(None);
+    };
+
+    Ok(Some(ImagePreviewPayload {
+        id,
+        data_url: format!("data:image/png;base64,{}", STANDARD.encode(png)),
+        width: entry.item.metadata.width.unwrap_or(0),
+        height: entry.item.metadata.height.unwrap_or(0),
+    }))
+}
+
 fn unique_shortcuts(settings: &AppSettings) -> bool {
     let shortcuts = [
         &settings.shortcuts.quick_preview,
@@ -29,9 +52,10 @@ fn unique_shortcuts(settings: &AppSettings) -> bool {
     ];
     let set: HashSet<_> = shortcuts
         .iter()
+        .filter(|shortcut| !shortcut.trim().is_empty())
         .map(|shortcut| shortcut.to_lowercase())
         .collect();
-    set.len() == shortcuts.len()
+    set.len() == shortcuts.iter().filter(|shortcut| !shortcut.trim().is_empty()).count()
 }
 
 #[tauri::command]
@@ -74,8 +98,12 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSetting
 
     state.history.lock().truncate(next.history.max_items);
     settings_store::save_settings(&app, &next)?;
-    let items = state.history.lock().items();
-    settings_store::save_history(&app, next.history.persist_history, &items)?;
+    if next.history.persist_history {
+        let entries = state.history.lock().entries();
+        settings_store::save_history(&app, true, &entries)?;
+    } else {
+        settings_store::clear_history_file(&app);
+    }
     Ok(next)
 }
 
@@ -90,16 +118,17 @@ pub fn clear_history(app: AppHandle) -> Result<(), String> {
 pub fn select_history_item(app: AppHandle, id: String) -> Result<(), String> {
     let state = app.state::<AppState>();
     let settings = state.settings.read().clone();
-    let item = state
+    let entry = state
         .history
         .lock()
         .find(&id)
         .ok_or("History item not found")?;
-    clipboard::write_text(&app, &item.content)?;
+    drop(state);
+
+    clipboard::write_entry(&app, &entry)?;
     if settings.history.move_selected_to_top {
-        state.history.lock().promote(&id);
-        let items = state.history.lock().items();
-        settings_store::save_history(&app, settings.history.persist_history, &items)?;
+        app.state::<AppState>().history.lock().promote(&id);
+        settings_store::schedule_history_save(&app, settings.history.persist_history);
     }
     overlays::hide_history(&app);
     Ok(())
@@ -156,9 +185,46 @@ pub fn platform_status(app: AppHandle) -> PlatformStatus {
         accessibility_granted,
         hold_release_available: !mac || accessibility_granted,
         global_wheel_available: !mac || accessibility_granted,
+        tab_hold_available: !mac || accessibility_granted,
+        image_history_available: cfg!(any(target_os = "windows", target_os = "macos")),
+        history_memory_budget_mib: HISTORY_MEMORY_BUDGET_MIB,
+        history_performance_warning_items: HISTORY_PERF_WARNING_ITEMS,
+        last_crash_available: diagnostics::last_crash_available(),
         version: app.package_info().version.to_string(),
         startup_warnings,
     }
+}
+
+#[tauri::command]
+pub fn diagnostics_report(app: AppHandle) -> String {
+    diagnostics::report(
+        &app.package_info().version.to_string(),
+        std::env::consts::OS,
+    )
+}
+
+#[tauri::command]
+pub fn clear_diagnostics() -> Result<(), String> {
+    diagnostics::clear_last_crash()
+}
+
+#[tauri::command]
+pub fn open_diagnostics_folder() -> Result<(), String> {
+    let path = diagnostics::diagnostics_dir();
+    std::fs::create_dir_all(&path).map_err(|error| error.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    let mut command = Command::new("explorer");
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let mut command = Command::new("xdg-open");
+
+    command
+        .arg(path)
+        .spawn()
+        .map_err(|error| format!("Could not open diagnostics folder: {error}"))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -182,7 +248,7 @@ pub fn reset_settings(app: AppHandle) -> Result<AppSettings, String> {
         let _ = tray.set_visible(defaults.general.show_tray_icon);
     }
     settings_store::save_settings(&app, &defaults)?;
-    settings_store::save_history(&app, false, &[])?;
+    settings_store::clear_history_file(&app);
     Ok(defaults)
 }
 
