@@ -116,7 +116,7 @@ export function HistoryOverlay() {
         className="switcher-body"
         style={
           largePreviewPanel
-            ? { gridTemplateColumns: 'minmax(300px, .84fr) minmax(380px, 1.16fr)' }
+            ? { gridTemplateColumns: 'minmax(0, .84fr) minmax(0, 1.16fr)' }
             : undefined
         }
       >
