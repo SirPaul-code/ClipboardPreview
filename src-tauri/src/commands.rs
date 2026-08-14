@@ -129,14 +129,16 @@ pub fn clear_history(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn select_history_item(app: AppHandle, id: String) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    let settings = state.settings.read().clone();
-    let entry = state
-        .history
-        .lock()
-        .find(&id)
-        .ok_or("History item not found")?;
-    drop(state);
+    let (settings, entry) = {
+        let state = app.state::<AppState>();
+        let settings = state.settings.read().clone();
+        let entry = state
+            .history
+            .lock()
+            .find(&id)
+            .ok_or("History item not found")?;
+        (settings, entry)
+    };
 
     clipboard::write_entry(&app, &entry)?;
     if settings.history.move_selected_to_top {
