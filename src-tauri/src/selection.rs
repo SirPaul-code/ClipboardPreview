@@ -38,15 +38,20 @@ pub fn navigate(app: &AppHandle, mut delta: i32) -> Result<(), String> {
 }
 
 pub fn accept(app: &AppHandle) -> Result<(), String> {
-    let Some(state) = app.try_state::<AppState>() else {
-        overlays::hide_history(app);
-        return Ok(());
-    };
-    let (active, index) = {
-        let mut selector = state.selector.lock();
-        let current = (selector.active, selector.selected_index);
-        selector.active = false;
-        current
+    let (active, index, settings, entry) = {
+        let Some(state) = app.try_state::<AppState>() else {
+            overlays::hide_history(app);
+            return Ok(());
+        };
+        let (active, index) = {
+            let mut selector = state.selector.lock();
+            let current = (selector.active, selector.selected_index);
+            selector.active = false;
+            current
+        };
+        let settings = state.settings.read().clone();
+        let entry = state.history.lock().get(index);
+        (active, index, settings, entry)
     };
 
     if !active {
@@ -54,10 +59,7 @@ pub fn accept(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let settings = state.settings.read().clone();
-    let entry = state.history.lock().get(index);
-    drop(state);
-
+    let _ = index;
     let result = if let Some(entry) = entry {
         let write_result = clipboard::write_entry(app, &entry);
         if write_result.is_ok() && settings.history.move_selected_to_top {
