@@ -276,8 +276,9 @@ export function SettingsApp() {
                 <h3>Clipboard Preview</h3>
                 <p className="version">Version {status?.version ?? '1.2.0'}</p>
                 <p>A lightweight text and image clipboard switcher for Windows and macOS.</p>
+                <p>Made by <a href="https://github.com/SirPaul-code"><strong>Pavol Duplinsky</strong></a> · <a href="https://github.com/SirPaul-code">@SirPaul-code</a></p>
                 <div className="privacy-note"><Shield size={18} /><div><strong>Local by default</strong><span>No telemetry, accounts, cloud sync, or remote clipboard API.</span></div></div>
-                <div className="about-links"><a href="https://github.com/SirPaul-code/ClipboardPreview">GitHub</a><a href="https://github.com/SirPaul-code/ClipboardPreview/issues">Report an issue</a><span>MIT License</span></div>
+                <div className="about-links"><a href="https://github.com/SirPaul-code/ClipboardPreview">GitHub</a><a href="https://github.com/SirPaul-code/ClipboardPreview/releases">Releases</a><a href="https://github.com/SirPaul-code/ClipboardPreview/issues">Report an issue</a><a href="https://github.com/SirPaul-code/ClipboardPreview/blob/main/LICENSE">MIT License</a></div>
               </div>
             </Section>
           )}
