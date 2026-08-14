@@ -168,14 +168,14 @@ fn history_payload(app: &AppHandle) -> HistoryOverlayPayload {
 pub fn show_history(app: &AppHandle, focus: bool) -> Result<(), String> {
     let settings = app.state::<AppState>().settings.read().clone();
 
-    // Keep native window sizing in sync with the CSS row geometry. The old
-    // formula left the WebView a few pixels short for some image/detail sizes,
-    // which made the document itself scroll and exposed part of another row.
-    const SWITCHER_CHROME_HEIGHT: u32 = 100;
+    // The CSS uses a 42 px header, a 30 px footer, six pixels of list padding,
+    // and exact 48 px rows. Matching that geometry here keeps the WebView
+    // document from becoming scrollable and prevents partial/extra rows.
+    const SWITCHER_CHROME_HEIGHT: u32 = 78;
     const SWITCHER_ROW_HEIGHT: u32 = 48;
     let height = (SWITCHER_CHROME_HEIGHT
         + settings.history.visible_items as u32 * SWITCHER_ROW_HEIGHT)
-        .clamp(244, 680);
+        .clamp(222, 654);
     let width = if settings.history.large_preview_panel {
         760
     } else {
