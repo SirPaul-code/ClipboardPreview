@@ -1,0 +1,90 @@
+name: Finalize v1.3.0
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: "${{ github.event.head_commit.message == 'ci: finalize v1.3.0 release' }}"
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - id: release
+        name: Resolve v1.3.0 release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v1.3.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-check
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > release-check/releases.json
+          node <<'NODE'
+          const fs = require('fs');
+          const tag = process.env.RELEASE_TAG;
+          const releases = JSON.parse(fs.readFileSync('release-check/releases.json', 'utf8'));
+          const release = releases.find((entry) => entry.tag_name === tag);
+          if (!release) {
+            console.error(`Release ${tag} was not found`);
+            process.exit(1);
+          }
+          fs.writeFileSync('release-check/release.json', JSON.stringify(release));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `state=${release.draft ? 'draft' : 'published'}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `id=${release.id}\n`);
+          NODE
+
+      - name: Download updater manifest from draft
+        if: steps.release.outputs.state == 'draft'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSET_ID="$(node -p "JSON.parse(require('fs').readFileSync('release-check/release.json','utf8')).assets.find(a => a.name === 'latest.json')?.id ?? ''")"
+          if [ -z "$ASSET_ID" ]; then
+            echo "latest.json is missing from the draft release" >&2
+            exit 1
+          fi
+          gh api \
+            -H "Accept: application/octet-stream" \
+            "repos/${GITHUB_REPOSITORY}/releases/assets/${ASSET_ID}" \
+            > release-check/latest.json
+
+      - name: Verify complete signed updater release
+        if: steps.release.outputs.state == 'draft'
+        run: node scripts/verify-updater-release.mjs release-check/latest.json release-check/release.json
+
+      - name: Publish verified release
+        if: steps.release.outputs.state == 'draft'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false \
+            -f make_latest=true \
+            > release-check/published.json
+
+      - name: Verify public release endpoint
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v1.3.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > release-check/public.json
+          node -e "const r=require('./release-check/public.json'); if(r.draft || r.tag_name !== process.env.RELEASE_TAG || !r.assets.some(a => a.name === 'latest.json')) process.exit(1)"
