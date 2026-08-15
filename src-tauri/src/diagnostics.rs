@@ -5,6 +5,7 @@ use std::{
     path::PathBuf,
 };
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const IDENTIFIER: &str = "io.github.sirpaulcode.clipboardpreview";
 const MAX_BOOTSTRAP_LOG_BYTES: u64 = 512 * 1024;
 

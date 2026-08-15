@@ -100,12 +100,35 @@ pub fn start(app: AppHandle) {
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
+fn reset_native_state(state: &AppState) {
+    state.tab_down.store(false, Ordering::SeqCst);
+    state.tab_hold_triggered.store(false, Ordering::SeqCst);
+    state.replaying_tab.store(false, Ordering::SeqCst);
+    state.alt_down.store(false, Ordering::SeqCst);
+    state.control_down.store(false, Ordering::SeqCst);
+    state.shift_down.store(false, Ordering::SeqCst);
+    state.meta_down.store(false, Ordering::SeqCst);
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub fn reset_state(app: &AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        reset_native_state(&state);
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
     use rdev::{EventType, Key};
 
     let Some(state) = app.try_state::<AppState>() else {
         return Some(event);
     };
+
+    if state.settings.read().general.monitoring_paused {
+        reset_native_state(&state);
+        return Some(event);
+    }
 
     update_modifier_state(&state, &event.event_type);
 
@@ -175,7 +198,11 @@ fn navigation_delta(state: &AppState, event: &rdev::Event, key: rdev::Key) -> Op
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn shortcut_matches(state: &AppState, event: &rdev::Event, key: rdev::Key, shortcut: &str) -> bool {
-    let parts: Vec<_> = shortcut.split('+').map(str::trim).filter(|part| !part.is_empty()).collect();
+    let parts: Vec<_> = shortcut
+        .split('+')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect();
     let Some(expected_key) = parts.last() else {
         return false;
     };
@@ -248,20 +275,42 @@ fn canonical_key(event: &rdev::Event, key: rdev::Key) -> Option<String> {
     }
 
     let physical = match key {
-        Key::KeyA => Some("A"), Key::KeyB => Some("B"), Key::KeyC => Some("C"),
-        Key::KeyD => Some("D"), Key::KeyE => Some("E"), Key::KeyF => Some("F"),
-        Key::KeyG => Some("G"), Key::KeyH => Some("H"), Key::KeyI => Some("I"),
-        Key::KeyJ => Some("J"), Key::KeyK => Some("K"), Key::KeyL => Some("L"),
-        Key::KeyM => Some("M"), Key::KeyN => Some("N"), Key::KeyO => Some("O"),
-        Key::KeyP => Some("P"), Key::KeyQ => Some("Q"), Key::KeyR => Some("R"),
-        Key::KeyS => Some("S"), Key::KeyT => Some("T"), Key::KeyU => Some("U"),
-        Key::KeyV => Some("V"), Key::KeyW => Some("W"), Key::KeyX => Some("X"),
-        Key::KeyY => Some("Y"), Key::KeyZ => Some("Z"),
-        Key::Num0 | Key::Kp0 => Some("0"), Key::Num1 | Key::Kp1 => Some("1"),
-        Key::Num2 | Key::Kp2 => Some("2"), Key::Num3 | Key::Kp3 => Some("3"),
-        Key::Num4 | Key::Kp4 => Some("4"), Key::Num5 | Key::Kp5 => Some("5"),
-        Key::Num6 | Key::Kp6 => Some("6"), Key::Num7 | Key::Kp7 => Some("7"),
-        Key::Num8 | Key::Kp8 => Some("8"), Key::Num9 | Key::Kp9 => Some("9"),
+        Key::KeyA => Some("A"),
+        Key::KeyB => Some("B"),
+        Key::KeyC => Some("C"),
+        Key::KeyD => Some("D"),
+        Key::KeyE => Some("E"),
+        Key::KeyF => Some("F"),
+        Key::KeyG => Some("G"),
+        Key::KeyH => Some("H"),
+        Key::KeyI => Some("I"),
+        Key::KeyJ => Some("J"),
+        Key::KeyK => Some("K"),
+        Key::KeyL => Some("L"),
+        Key::KeyM => Some("M"),
+        Key::KeyN => Some("N"),
+        Key::KeyO => Some("O"),
+        Key::KeyP => Some("P"),
+        Key::KeyQ => Some("Q"),
+        Key::KeyR => Some("R"),
+        Key::KeyS => Some("S"),
+        Key::KeyT => Some("T"),
+        Key::KeyU => Some("U"),
+        Key::KeyV => Some("V"),
+        Key::KeyW => Some("W"),
+        Key::KeyX => Some("X"),
+        Key::KeyY => Some("Y"),
+        Key::KeyZ => Some("Z"),
+        Key::Num0 | Key::Kp0 => Some("0"),
+        Key::Num1 | Key::Kp1 => Some("1"),
+        Key::Num2 | Key::Kp2 => Some("2"),
+        Key::Num3 | Key::Kp3 => Some("3"),
+        Key::Num4 | Key::Kp4 => Some("4"),
+        Key::Num5 | Key::Kp5 => Some("5"),
+        Key::Num6 | Key::Kp6 => Some("6"),
+        Key::Num7 | Key::Kp7 => Some("7"),
+        Key::Num8 | Key::Kp8 => Some("8"),
+        Key::Num9 | Key::Kp9 => Some("9"),
         _ => None,
     };
     physical.map(str::to_string)
@@ -310,8 +359,7 @@ fn schedule_tab_hold(app: AppHandle) {
             if state.tab_hold_triggered.swap(true, Ordering::SeqCst) {
                 return;
             }
-            let mode = state.settings.read().history.interaction_mode.clone();
-            mode
+            state.settings.read().history.interaction_mode.clone()
         };
 
         if let Err(error) = overlays::begin(&app, mode) {
@@ -351,12 +399,9 @@ fn replay_tab(app: AppHandle) {
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn history_uses_tab(state: &AppState) -> bool {
-    state
-        .settings
-        .read()
-        .shortcuts
-        .history_selector
-        .eq_ignore_ascii_case("Tab")
+    let settings = state.settings.read();
+    !settings.general.monitoring_paused
+        && settings.shortcuts.history_selector.eq_ignore_ascii_case("Tab")
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -372,4 +417,11 @@ fn push_warning(app: &AppHandle, message: &str) {
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-pub fn start(_app: AppHandle) {}
+pub fn start(_app: AppHandle) {
+    // The hold threshold remains a shared setting even though Linux intentionally
+    // does not compile native Tab interception.
+    let _hold_delay_is_shared = crate::models::TAB_HOLD_DELAY_MS;
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub fn reset_state(_app: &AppHandle) {}

@@ -50,6 +50,18 @@ pub fn register_notifications(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+pub fn show_runtime_notice(app: &AppHandle, message: &str) {
+    if !NOTIFICATIONS_READY.load(Ordering::SeqCst) {
+        return;
+    }
+    let _ = app
+        .notification()
+        .builder()
+        .title("Clipboard Preview")
+        .body(message)
+        .show();
+}
+
 pub fn register_updater(app: &AppHandle) -> Result<(), String> {
     if !official_build() {
         return Ok(());
@@ -161,6 +173,8 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?;
 
+    // The updater plugin restarts Windows through the installer itself. Other
+    // platforms return here after installation and need an explicit restart.
     #[cfg(not(target_os = "windows"))]
     app.restart();
 

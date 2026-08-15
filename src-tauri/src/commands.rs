@@ -78,7 +78,37 @@ fn unique_shortcuts(settings: &AppSettings) -> bool {
         .filter(|shortcut| !shortcut.trim().is_empty())
         .map(|shortcut| shortcut.to_lowercase())
         .collect();
-    set.len() == shortcuts.iter().filter(|shortcut| !shortcut.trim().is_empty()).count()
+    set.len()
+        == shortcuts
+            .iter()
+            .filter(|shortcut| !shortcut.trim().is_empty())
+            .count()
+}
+
+fn apply_pause_transition(app: &AppHandle, was_paused: bool, is_paused: bool) {
+    if was_paused == is_paused {
+        return;
+    }
+
+    // Drop any captured Tab/modifier state before changing modes. While paused,
+    // the native hook returns every input event untouched.
+    global_input::reset_state(app);
+
+    if is_paused {
+        selection::cancel(app);
+        if let Some(window) = app.get_webview_window("quick-preview") {
+            let _ = window.hide();
+        }
+    }
+
+    updates::show_runtime_notice(
+        app,
+        if is_paused {
+            "Clipboard paused"
+        } else {
+            "Clipboard resumed"
+        },
+    );
 }
 
 #[tauri::command]
@@ -103,6 +133,7 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSetting
 
     let state = app.state::<AppState>();
     let old = state.settings.read().clone();
+    let was_paused = old.general.monitoring_paused;
     *state.settings.write() = next.clone();
 
     if let Err(error) = shortcuts::register_all(&app) {
@@ -140,6 +171,8 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSetting
     } else {
         settings_store::clear_history_file(&app);
     }
+
+    apply_pause_transition(&app, was_paused, next.general.monitoring_paused);
     Ok(next)
 }
 
@@ -200,14 +233,10 @@ pub fn open_settings(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn toggle_monitoring(app: AppHandle) -> Result<bool, String> {
-    let state = app.state::<AppState>();
-    let value = {
-        let mut settings = state.settings.write();
-        settings.general.monitoring_paused = !settings.general.monitoring_paused;
-        settings_store::save_settings(&app, &settings)?;
-        settings.general.monitoring_paused
-    };
-    Ok(value)
+    let mut next = app.state::<AppState>().settings.read().clone();
+    next.general.monitoring_paused = !next.general.monitoring_paused;
+    let saved = save_settings(app, next)?;
+    Ok(saved.general.monitoring_paused)
 }
 
 #[tauri::command]
@@ -318,15 +347,19 @@ pub fn complete_first_run(app: AppHandle) -> Result<AppSettings, String> {
 pub fn reset_settings(app: AppHandle) -> Result<AppSettings, String> {
     let defaults = AppSettings::default().normalized();
     let state = app.state::<AppState>();
+    let was_paused = state.settings.read().general.monitoring_paused;
     *state.settings.write() = defaults.clone();
     shortcuts::register_all(&app)?;
     state.startup_warnings.write().clear();
-    app.autolaunch().disable().map_err(|error| error.to_string())?;
+    app.autolaunch()
+        .disable()
+        .map_err(|error| error.to_string())?;
     if let Some(tray) = app.tray_by_id("main-tray") {
         let _ = tray.set_visible(defaults.general.show_tray_icon);
     }
     settings_store::save_settings(&app, &defaults)?;
     settings_store::clear_history_file(&app);
+    apply_pause_transition(&app, was_paused, defaults.general.monitoring_paused);
     Ok(defaults)
 }
 
