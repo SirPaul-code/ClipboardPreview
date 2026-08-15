@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_VERSION: u32 = 4;
+pub const CONFIG_VERSION: u32 = 5;
 pub const HISTORY_MAX_ITEMS: usize = 250;
 pub const HISTORY_PERF_WARNING_ITEMS: usize = 150;
 pub const HISTORY_MEMORY_BUDGET_MIB: usize = 192;
@@ -10,6 +10,14 @@ pub const IMAGE_PREVIEW_DELAY_MS: u64 = 650;
 
 fn default_large_preview_panel() -> bool {
     true
+}
+
+fn default_previous_item() -> String {
+    "ArrowUp".into()
+}
+
+fn default_next_item() -> String {
+    "ArrowDown".into()
 }
 
 fn valid_hex_color(value: &str) -> bool {
@@ -90,6 +98,10 @@ pub struct GeneralSettings {
 pub struct ShortcutSettings {
     pub quick_preview: String,
     pub history_selector: String,
+    #[serde(default = "default_previous_item")]
+    pub previous_item: String,
+    #[serde(default = "default_next_item")]
+    pub next_item: String,
     pub open_settings: String,
     pub pause_monitoring: String,
 }
@@ -281,6 +293,8 @@ impl Default for AppSettings {
             shortcuts: ShortcutSettings {
                 quick_preview: "Ctrl+Alt+K".into(),
                 history_selector: if linux { "Ctrl+Alt+J".into() } else { "Tab".into() },
+                previous_item: default_previous_item(),
+                next_item: default_next_item(),
                 open_settings: "Ctrl+Alt+P".into(),
                 pause_monitoring: "Ctrl+Alt+Shift+P".into(),
             },
@@ -384,6 +398,8 @@ pub struct HistoryOverlayPayload {
     pub appearance: AppearanceSettings,
     pub total_items: usize,
     pub shortcut: String,
+    pub previous_shortcut: String,
+    pub next_shortcut: String,
     pub image_preview_delay_ms: u64,
     pub large_preview_panel: bool,
 }
@@ -437,6 +453,8 @@ mod tests {
             assert_eq!(x.shortcuts.history_selector, "Tab");
             assert!(matches!(x.history.interaction_mode, InteractionMode::HoldRelease));
         }
+        assert_eq!(x.shortcuts.previous_item, "ArrowUp");
+        assert_eq!(x.shortcuts.next_item, "ArrowDown");
         assert_eq!(x.history.visible_items, 6);
         assert!(x.history.large_preview_panel);
     }
@@ -462,12 +480,16 @@ mod tests {
     }
 
     #[test]
-    fn deserializes_v3_settings_without_switcher_appearance() {
+    fn deserializes_old_settings_without_navigation_or_appearance() {
         let mut value = serde_json::to_value(AppSettings::default()).unwrap();
         value["configVersion"] = serde_json::json!(3);
         value["appearance"].as_object_mut().unwrap().remove("switcher");
+        value["shortcuts"].as_object_mut().unwrap().remove("previousItem");
+        value["shortcuts"].as_object_mut().unwrap().remove("nextItem");
         let x: AppSettings = serde_json::from_value(value).unwrap();
         assert_eq!(x.appearance.switcher, SwitcherAppearanceSettings::default());
+        assert_eq!(x.shortcuts.previous_item, "ArrowUp");
+        assert_eq!(x.shortcuts.next_item, "ArrowDown");
     }
 
     #[test]
