@@ -13,12 +13,52 @@ use crate::{
     state::AppState,
 };
 
+pub fn navigation_shortcut_supported(value: &str) -> bool {
+    let Some(key) = value.split('+').next_back() else {
+        return false;
+    };
+    let key = key.trim();
+    if key.chars().count() == 1 {
+        return true;
+    }
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "arrowup"
+            | "arrowdown"
+            | "arrowleft"
+            | "arrowright"
+            | "pageup"
+            | "pagedown"
+            | "home"
+            | "end"
+            | "enter"
+            | "space"
+            | "escape"
+            | "backspace"
+            | "delete"
+            | "insert"
+            | "tab"
+            | "f1"
+            | "f2"
+            | "f3"
+            | "f4"
+            | "f5"
+            | "f6"
+            | "f7"
+            | "f8"
+            | "f9"
+            | "f10"
+            | "f11"
+            | "f12"
+    )
+}
+
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 pub fn start(app: AppHandle) {
     if cfg!(target_os = "macos") && !permissions::accessibility_granted() {
         push_warning(
             &app,
-            "Tab hold and global wheel selection need macOS Accessibility permission. Grant it or choose a modifier-based History shortcut in Settings.",
+            "Tab hold and global wheel/keyboard selection need macOS Accessibility permission. Grant it or choose a modifier-based History shortcut in Settings.",
         );
         return;
     }
@@ -46,7 +86,7 @@ pub fn start(app: AppHandle) {
 
         if let Err(error) = result {
             let message = format!(
-                "Global input capture stopped: {error:?}. Tab hold is unavailable; choose another History shortcut if needed."
+                "Global input capture stopped: {error:?}. Tab hold, wheel and hold-mode navigation keys are unavailable; choose sticky mode or another History shortcut if needed."
             );
             log::warn!("{message}");
             push_warning(&app, &message);
@@ -68,19 +108,35 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
         return Some(event);
     }
 
-    match event.event_type {
-        EventType::Wheel { delta_y, .. } if delta_y != 0 => {
-            if state.selector.lock().active {
+    let selector_active = state.selector.lock().active;
+    if selector_active {
+        match event.event_type {
+            EventType::Wheel { delta_y, .. } if delta_y != 0 => {
                 let _ = selection::navigate(app, if delta_y < 0 { 1 } else { -1 });
                 return None;
             }
+            EventType::KeyPress(key) => {
+                if let Some(delta) = navigation_delta(&state, &event, key) {
+                    let _ = selection::navigate(app, delta);
+                    return None;
+                }
+            }
+            EventType::KeyRelease(key) => {
+                if navigation_delta(&state, &event, key).is_some() {
+                    return None;
+                }
+            }
+            _ => {}
         }
+    }
+
+    match event.event_type {
         EventType::KeyPress(Key::Tab) if history_uses_tab(&state) && !modifier_pressed(&state) => {
             if !state.tab_down.swap(true, Ordering::SeqCst) {
                 state.tab_hold_triggered.store(false, Ordering::SeqCst);
                 schedule_tab_hold(app.clone());
             }
-            return None;
+            None
         }
         EventType::KeyRelease(Key::Tab)
             if history_uses_tab(&state) && state.tab_down.load(Ordering::SeqCst) =>
@@ -94,12 +150,95 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
             } else {
                 replay_tab(app.clone());
             }
-            return None;
+            None
         }
-        _ => {}
+        _ => Some(event),
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn navigation_delta(state: &AppState, event: &rdev::Event, key: rdev::Key) -> Option<i32> {
+    let settings = state.settings.read();
+    if shortcut_matches(state, event, key, &settings.shortcuts.previous_item) {
+        Some(-1)
+    } else if shortcut_matches(state, event, key, &settings.shortcuts.next_item) {
+        Some(1)
+    } else {
+        None
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn shortcut_matches(state: &AppState, event: &rdev::Event, key: rdev::Key, shortcut: &str) -> bool {
+    let parts: Vec<_> = shortcut.split('+').map(str::trim).filter(|part| !part.is_empty()).collect();
+    let Some(expected_key) = parts.last() else {
+        return false;
+    };
+
+    let expected_ctrl = parts.iter().any(|part| part.eq_ignore_ascii_case("Ctrl"));
+    let expected_alt = parts.iter().any(|part| part.eq_ignore_ascii_case("Alt"));
+    let expected_shift = parts.iter().any(|part| part.eq_ignore_ascii_case("Shift"));
+    let expected_meta = parts.iter().any(|part| {
+        part.eq_ignore_ascii_case("Cmd")
+            || part.eq_ignore_ascii_case("Meta")
+            || part.eq_ignore_ascii_case("Super")
+    });
+
+    if expected_ctrl != state.control_down.load(Ordering::SeqCst)
+        || expected_alt != state.alt_down.load(Ordering::SeqCst)
+        || expected_shift != state.shift_down.load(Ordering::SeqCst)
+        || expected_meta != state.meta_down.load(Ordering::SeqCst)
+    {
+        return false;
     }
 
-    Some(event)
+    canonical_key(event, key)
+        .is_some_and(|actual| actual.eq_ignore_ascii_case(expected_key))
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn canonical_key(event: &rdev::Event, key: rdev::Key) -> Option<String> {
+    use rdev::Key;
+
+    let special = match key {
+        Key::UpArrow => Some("ArrowUp"),
+        Key::DownArrow => Some("ArrowDown"),
+        Key::LeftArrow => Some("ArrowLeft"),
+        Key::RightArrow => Some("ArrowRight"),
+        Key::PageUp => Some("PageUp"),
+        Key::PageDown => Some("PageDown"),
+        Key::Home => Some("Home"),
+        Key::End => Some("End"),
+        Key::Return | Key::KpReturn => Some("Enter"),
+        Key::Space => Some("Space"),
+        Key::Escape => Some("Escape"),
+        Key::Backspace => Some("Backspace"),
+        Key::Delete | Key::KpDelete => Some("Delete"),
+        Key::Insert => Some("Insert"),
+        Key::Tab => Some("Tab"),
+        Key::F1 => Some("F1"),
+        Key::F2 => Some("F2"),
+        Key::F3 => Some("F3"),
+        Key::F4 => Some("F4"),
+        Key::F5 => Some("F5"),
+        Key::F6 => Some("F6"),
+        Key::F7 => Some("F7"),
+        Key::F8 => Some("F8"),
+        Key::F9 => Some("F9"),
+        Key::F10 => Some("F10"),
+        Key::F11 => Some("F11"),
+        Key::F12 => Some("F12"),
+        _ => None,
+    };
+    if let Some(value) = special {
+        return Some(value.into());
+    }
+
+    event
+        .name
+        .as_ref()
+        .filter(|name| !name.is_empty() && name.chars().count() == 1)
+        .map(|name| name.to_uppercase())
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -144,8 +283,7 @@ fn schedule_tab_hold(app: AppHandle) {
             if state.tab_hold_triggered.swap(true, Ordering::SeqCst) {
                 return;
             }
-            let mode = state.settings.read().history.interaction_mode.clone();
-            mode
+            state.settings.read().history.interaction_mode.clone()
         };
 
         if let Err(error) = overlays::begin(&app, mode) {
