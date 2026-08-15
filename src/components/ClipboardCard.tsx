@@ -1,4 +1,5 @@
 import type { ClipboardItem } from '../types';
+import { formatClipboardTimestamp } from '../lib/clipboardFormat';
 
 const labels = {
   text: 'Text',
@@ -16,13 +17,6 @@ const markers = {
   image: 'IMG'
 } as const;
 
-function formatBytes(bytes: number) {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 export function ClipboardCard({
   item,
   selected = false,
@@ -32,15 +26,7 @@ export function ClipboardCard({
   selected?: boolean;
   onClick?: () => void;
 }) {
-  const imageMeta =
-    item.type === 'image' && item.metadata.width && item.metadata.height
-      ? `${item.metadata.width}×${item.metadata.height}`
-      : null;
-  const meta =
-    imageMeta ??
-    (item.metadata.characterCount
-      ? `${item.metadata.characterCount} ch`
-      : formatBytes(item.metadata.byteSize));
+  const timestamp = formatClipboardTimestamp(item.createdAt);
 
   return (
     <button
@@ -60,7 +46,7 @@ export function ClipboardCard({
       <div className="clip-main">
         <div className="clip-title-row">
           <span className="clip-kind">{labels[item.type]}</span>
-          {meta ? <span className="clip-meta">{meta}</span> : null}
+          {timestamp ? <time className="clip-meta" dateTime={item.createdAt}>{timestamp}</time> : null}
         </div>
         <div className={`clip-text ${item.type === 'code' ? 'mono' : ''}`}>
           {item.preview || (item.type === 'image' ? 'Clipboard image' : 'Empty text')}
