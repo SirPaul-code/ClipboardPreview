@@ -24,19 +24,9 @@ pub fn input_monitoring_granted() -> bool {
     unsafe { CGPreflightListenEventAccess() }
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn input_monitoring_granted() -> bool {
-    true
-}
-
 #[cfg(target_os = "macos")]
 pub fn native_input_permissions_granted() -> bool {
     accessibility_trusted() && input_monitoring_granted()
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn native_input_permissions_granted() -> bool {
-    true
 }
 
 // PlatformStatus historically exposes this as `accessibilityGranted`. Keep that
