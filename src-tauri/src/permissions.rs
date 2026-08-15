@@ -15,13 +15,8 @@ extern "C" {
 }
 
 #[cfg(target_os = "macos")]
-pub fn accessibility_granted() -> bool {
+fn accessibility_trusted() -> bool {
     unsafe { AXIsProcessTrusted() != 0 }
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn accessibility_granted() -> bool {
-    true
 }
 
 #[cfg(target_os = "macos")]
@@ -36,11 +31,24 @@ pub fn input_monitoring_granted() -> bool {
 
 #[cfg(target_os = "macos")]
 pub fn native_input_permissions_granted() -> bool {
-    accessibility_granted() && input_monitoring_granted()
+    accessibility_trusted() && input_monitoring_granted()
 }
 
 #[cfg(not(target_os = "macos"))]
 pub fn native_input_permissions_granted() -> bool {
+    true
+}
+
+// PlatformStatus historically exposes this as `accessibilityGranted`. Keep that
+// field backward compatible, but on macOS make it mean "native switcher input is
+// authorized" because Tab hold requires both TCC services.
+#[cfg(target_os = "macos")]
+pub fn accessibility_granted() -> bool {
+    native_input_permissions_granted()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn accessibility_granted() -> bool {
     true
 }
 
@@ -67,9 +75,9 @@ pub fn open_input_monitoring_settings() -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 pub fn wait_for_native_input_permissions() -> Result<(), String> {
-    if !accessibility_granted() {
+    if !accessibility_trusted() {
         open_accessibility_settings()?;
-        while !accessibility_granted() {
+        while !accessibility_trusted() {
             thread::sleep(Duration::from_millis(750));
         }
     }
