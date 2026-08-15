@@ -6,17 +6,25 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::{
-    clipboard, diagnostics,
+    clipboard, diagnostics, global_input,
     models::{
         AppSettings, ImagePreviewPayload, InteractionMode, PlatformStatus,
         HISTORY_MEMORY_BUDGET_MIB, HISTORY_PERF_WARNING_ITEMS,
     },
     overlays, permissions, selection, settings_store, shortcuts,
     state::AppState,
+    updates,
 };
 
 const IMAGE_PREVIEW_MAX_WIDTH: u32 = 1280;
 const IMAGE_PREVIEW_MAX_HEIGHT: u32 = 900;
+const EXTERNAL_URLS: [&str; 5] = [
+    "https://github.com/SirPaul-code",
+    "https://github.com/SirPaul-code/ClipboardPreview",
+    "https://github.com/SirPaul-code/ClipboardPreview/releases",
+    "https://github.com/SirPaul-code/ClipboardPreview/issues",
+    "https://github.com/SirPaul-code/ClipboardPreview/blob/main/LICENSE",
+];
 
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> AppSettings {
@@ -60,6 +68,8 @@ fn unique_shortcuts(settings: &AppSettings) -> bool {
     let shortcuts = [
         &settings.shortcuts.quick_preview,
         &settings.shortcuts.history_selector,
+        &settings.shortcuts.previous_item,
+        &settings.shortcuts.next_item,
         &settings.shortcuts.open_settings,
         &settings.shortcuts.pause_monitoring,
     ];
@@ -68,18 +78,62 @@ fn unique_shortcuts(settings: &AppSettings) -> bool {
         .filter(|shortcut| !shortcut.trim().is_empty())
         .map(|shortcut| shortcut.to_lowercase())
         .collect();
-    set.len() == shortcuts.iter().filter(|shortcut| !shortcut.trim().is_empty()).count()
+    set.len()
+        == shortcuts
+            .iter()
+            .filter(|shortcut| !shortcut.trim().is_empty())
+            .count()
+}
+
+fn apply_pause_transition(app: &AppHandle, was_paused: bool, is_paused: bool) {
+    if was_paused == is_paused {
+        return;
+    }
+
+    // Drop any captured Tab/modifier state before changing modes. While paused,
+    // the native hook returns every input event untouched.
+    global_input::reset_state(app);
+
+    if is_paused {
+        selection::cancel(app);
+        if let Some(window) = app.get_webview_window("quick-preview") {
+            let _ = window.hide();
+        }
+    }
+
+    updates::show_runtime_notice(
+        app,
+        if is_paused {
+            "Clipboard paused"
+        } else {
+            "Clipboard resumed"
+        },
+    );
 }
 
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
     let next = settings.normalized();
     if !unique_shortcuts(&next) {
-        return Err("Each action needs a unique shortcut".into());
+        return Err("Each shortcut action needs a unique key binding".into());
+    }
+    if !global_input::navigation_shortcut_supported(&next.shortcuts.previous_item)
+        || !global_input::navigation_shortcut_supported(&next.shortcuts.next_item)
+    {
+        return Err("Switcher navigation supports letters, numbers, arrows, Home/End, PageUp/PageDown, Enter, Space, Escape, Backspace, Delete, Insert and F1-F12, with optional modifiers.".into());
+    }
+    if cfg!(target_os = "linux") {
+        if next.shortcuts.history_selector.eq_ignore_ascii_case("Tab") {
+            return Err("Plain Tab hold is not available on Linux. Choose a modifier-based switcher shortcut such as Ctrl+Alt+J.".into());
+        }
+        if matches!(next.history.interaction_mode, InteractionMode::HoldRelease) {
+            return Err("Hold/release mode is not available on Linux. Use sticky mode so wheel and keyboard navigation remain reliable.".into());
+        }
     }
 
     let state = app.state::<AppState>();
     let old = state.settings.read().clone();
+    let was_paused = old.general.monitoring_paused;
     *state.settings.write() = next.clone();
 
     if let Err(error) = shortcuts::register_all(&app) {
@@ -117,6 +171,8 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSetting
     } else {
         settings_store::clear_history_file(&app);
     }
+
+    apply_pause_transition(&app, was_paused, next.general.monitoring_paused);
     Ok(next)
 }
 
@@ -177,19 +233,17 @@ pub fn open_settings(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn toggle_monitoring(app: AppHandle) -> Result<bool, String> {
-    let state = app.state::<AppState>();
-    let value = {
-        let mut settings = state.settings.write();
-        settings.general.monitoring_paused = !settings.general.monitoring_paused;
-        settings_store::save_settings(&app, &settings)?;
-        settings.general.monitoring_paused
-    };
-    Ok(value)
+    let mut next = app.state::<AppState>().settings.read().clone();
+    next.general.monitoring_paused = !next.general.monitoring_paused;
+    let saved = save_settings(app, next)?;
+    Ok(saved.general.monitoring_paused)
 }
 
 #[tauri::command]
 pub fn platform_status(app: AppHandle) -> PlatformStatus {
+    let windows = cfg!(target_os = "windows");
     let mac = cfg!(target_os = "macos");
+    let linux = cfg!(target_os = "linux");
     let accessibility_granted = permissions::accessibility_granted();
     let state = app.state::<AppState>();
     let startup_warnings = state.startup_warnings.read().clone();
@@ -198,14 +252,16 @@ pub fn platform_status(app: AppHandle) -> PlatformStatus {
         os: std::env::consts::OS.into(),
         accessibility_required: mac,
         accessibility_granted,
-        hold_release_available: !mac || accessibility_granted,
-        global_wheel_available: !mac || accessibility_granted,
-        tab_hold_available: !mac || accessibility_granted,
-        image_history_available: cfg!(any(target_os = "windows", target_os = "macos")),
+        hold_release_available: windows || (mac && accessibility_granted),
+        global_wheel_available: windows || (mac && accessibility_granted),
+        tab_hold_available: windows || (mac && accessibility_granted),
+        image_history_available: windows || mac || linux,
         history_memory_budget_mib: HISTORY_MEMORY_BUDGET_MIB,
         history_performance_warning_items: HISTORY_PERF_WARNING_ITEMS,
         last_crash_available: diagnostics::last_crash_available(),
         version: app.package_info().version.to_string(),
+        official_build: updates::official_build(),
+        updates_enabled: updates::ready(),
         startup_warnings,
     }
 }
@@ -243,6 +299,42 @@ pub fn open_diagnostics_folder() -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    if !EXTERNAL_URLS.contains(&url.as_str()) {
+        return Err("Blocked external URL".into());
+    }
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("rundll32");
+        command.arg("url.dll,FileProtocolHandler").arg(&url);
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(&url);
+        command
+    };
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(&url);
+        command
+    };
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    return Err("Opening external URLs is not supported on this platform".into());
+
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+    {
+        command
+            .spawn()
+            .map_err(|error| format!("Could not open system browser: {error}"))?;
+        Ok(())
+    }
+}
+
+#[tauri::command]
 pub fn complete_first_run(app: AppHandle) -> Result<AppSettings, String> {
     let state = app.state::<AppState>();
     let mut settings = state.settings.write();
@@ -255,15 +347,19 @@ pub fn complete_first_run(app: AppHandle) -> Result<AppSettings, String> {
 pub fn reset_settings(app: AppHandle) -> Result<AppSettings, String> {
     let defaults = AppSettings::default().normalized();
     let state = app.state::<AppState>();
+    let was_paused = state.settings.read().general.monitoring_paused;
     *state.settings.write() = defaults.clone();
     shortcuts::register_all(&app)?;
     state.startup_warnings.write().clear();
-    app.autolaunch().disable().map_err(|error| error.to_string())?;
+    app.autolaunch()
+        .disable()
+        .map_err(|error| error.to_string())?;
     if let Some(tray) = app.tray_by_id("main-tray") {
         let _ = tray.set_visible(defaults.general.show_tray_icon);
     }
     settings_store::save_settings(&app, &defaults)?;
     settings_store::clear_history_file(&app);
+    apply_pause_transition(&app, was_paused, defaults.general.monitoring_paused);
     Ok(defaults)
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import type { CSSProperties } from 'react';
+import { formatClipboardTimestamp } from '../lib/clipboardFormat';
 import type { QuickPreviewPayload } from '../types';
 
 export function QuickPreview() {
@@ -16,6 +17,7 @@ export function QuickPreview() {
 
   const item = payload?.item;
   const isImage = item?.type === 'image';
+  const timestamp = item ? formatClipboardTimestamp(item.createdAt) : '';
 
   return (
     <main
@@ -35,9 +37,7 @@ export function QuickPreview() {
           {item?.thumbnailDataUrl ? <img src={item.thumbnailDataUrl} alt="Clipboard preview" /> : null}
           <div className="quick-image-meta">
             <strong>Image</strong>
-            <span>
-              {item?.metadata.width}×{item?.metadata.height}
-            </span>
+            <time dateTime={item?.createdAt}>{timestamp}</time>
           </div>
         </div>
       ) : (
@@ -54,9 +54,7 @@ export function QuickPreview() {
           >
             {item?.content?.slice(0, payload?.settings.maxCharacters) || 'Clipboard is empty'}
           </div>
-          {payload?.settings.showCharacterCount && item ? (
-            <div className="preview-count">{item.metadata.characterCount} characters</div>
-          ) : null}
+          {timestamp ? <time className="preview-count" dateTime={item?.createdAt}>{timestamp}</time> : null}
         </div>
       )}
     </main>

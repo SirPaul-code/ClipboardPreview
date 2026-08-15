@@ -40,8 +40,6 @@ fn position(
     let area_width = area.size.width as f64 / scale;
     let area_height = area.size.height as f64 / scale;
 
-    // Keep utility windows inside the actual monitor work area. This matters now
-    // that the split preview can grow with history instead of using a fixed box.
     let fitted_width = (width as f64).min((area_width - 16.0).max(1.0));
     let fitted_height = (height as f64).min((area_height - 16.0).max(1.0));
 
@@ -165,6 +163,8 @@ fn history_payload(app: &AppHandle) -> HistoryOverlayPayload {
         appearance: settings.appearance,
         total_items,
         shortcut: settings.shortcuts.history_selector,
+        previous_shortcut: settings.shortcuts.previous_item,
+        next_shortcut: settings.shortcuts.next_item,
         image_preview_delay_ms: IMAGE_PREVIEW_DELAY_MS,
         large_preview_panel: settings.history.large_preview_panel,
     }
@@ -175,11 +175,7 @@ pub fn show_history(app: &AppHandle, focus: bool) -> Result<(), String> {
     let settings = state.settings.read().clone();
     let total_items = state.history.lock().len();
 
-    // visible_items is a ceiling, not a fixed number of empty slots. Compact
-    // mode hugs the actual history. Split mode grows by the same 48 px per
-    // record but reserves extra vertical room so image previews stay useful.
     const SWITCHER_CHROME_HEIGHT: u32 = 72;
-    const SWITCHER_ROW_HEIGHT: u32 = 48;
     const LIST_VERTICAL_PADDING: u32 = 6;
     const MIN_COMPACT_BODY_HEIGHT: u32 = 96;
     const SPLIT_PREVIEW_EXTRA_HEIGHT: u32 = 96;
@@ -187,11 +183,11 @@ pub fn show_history(app: &AppHandle, focus: bool) -> Result<(), String> {
     let visible_rows = total_items
         .min(settings.history.visible_items)
         .max(1) as u32;
+    let row_height = settings.appearance.switcher.row_height;
     let list_height = if total_items == 0 {
         MIN_COMPACT_BODY_HEIGHT
     } else {
-        (visible_rows * SWITCHER_ROW_HEIGHT + LIST_VERTICAL_PADDING)
-            .max(MIN_COMPACT_BODY_HEIGHT)
+        (visible_rows * row_height + LIST_VERTICAL_PADDING).max(MIN_COMPACT_BODY_HEIGHT)
     };
     let body_height = if settings.history.large_preview_panel {
         list_height + SPLIT_PREVIEW_EXTRA_HEIGHT

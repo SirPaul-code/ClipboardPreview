@@ -1,6 +1,12 @@
 /* System theme corrections kept separate from component styling.
    All colors derive from the active theme variables, so system light/dark
    does not need duplicated component rules. */
+.theme-light {
+  /* Native WebView form controls otherwise keep the OS dark palette when
+     Clipboard Preview is explicitly switched to the light theme. */
+  color-scheme: light;
+}
+
 .theme-system .brand-mark,
 .theme-system .hero-mark,
 .theme-system .about-icon {

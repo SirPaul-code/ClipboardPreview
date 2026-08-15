@@ -1,0 +1,289 @@
+.switcher {
+  background: var(--sw-panel-bg, #151716);
+  border-color: var(--sw-border, #343834);
+}
+
+.switcher .switcher-header {
+  border-color: var(--sw-border, #343834);
+}
+
+.switcher .switcher-title {
+  color: var(--sw-title-color, #f3f4f1);
+  font-size: var(--sw-title-size, 13px);
+}
+
+.switcher .switcher-subtitle {
+  color: var(--sw-subtitle-color, #8d938c);
+  font-size: var(--sw-subtitle-size, 10px);
+}
+
+.switcher .switcher-header-meta,
+.switcher .switcher-header-meta span,
+.switcher .switcher-header-meta kbd {
+  color: var(--sw-header-meta-color, #a6aca5);
+  font-size: var(--sw-header-meta-size, 10px);
+}
+
+.switcher .switcher-body {
+  border-color: var(--sw-border, #343834);
+}
+
+.switcher .clip-card {
+  height: var(--sw-row-height, 48px);
+  min-height: var(--sw-row-height, 48px);
+  max-height: var(--sw-row-height, 48px);
+  background: var(--sw-row-bg, #151716);
+  border-color: transparent;
+}
+
+.switcher .clip-card.selected {
+  background: var(--sw-selected-bg, #282c28);
+  outline: 1px solid var(--sw-selected-border, #d5dad2);
+  outline-offset: -1px;
+}
+
+.switcher .clip-card.selected::before {
+  background: var(--sw-selected-border, #d5dad2);
+}
+
+.switcher .clip-kind {
+  color: var(--sw-item-type-color, #9da39c);
+  font-size: var(--sw-item-type-size, 9px);
+}
+
+.switcher .clip-text {
+  color: var(--sw-item-content-color, #f0f1ee);
+  font-size: var(--sw-item-content-size, 12px);
+}
+
+.switcher .clip-meta {
+  color: var(--sw-item-meta-color, #858b84);
+  font-size: var(--sw-item-meta-size, 9px);
+  white-space: nowrap;
+}
+
+.switcher .clip-thumb,
+.switcher .clip-icon {
+  width: var(--sw-thumb-size, 38px);
+  height: var(--sw-thumb-size, 38px);
+  min-width: var(--sw-thumb-size, 38px);
+}
+
+.switcher .switcher-detail,
+.switcher .image-preview-popover {
+  border-color: var(--sw-border, #343834);
+  background: var(--sw-panel-bg, #151716);
+}
+
+.switcher .detail-text,
+.switcher .image-stage,
+.switcher .editor-image-placeholder {
+  color: var(--sw-detail-content-color, #f0f1ee);
+  font-size: var(--sw-detail-content-size, 13px);
+}
+
+.switcher .detail-kind,
+.switcher .detail-caption,
+.switcher .detail-caption strong,
+.switcher .detail-caption span,
+.switcher .image-preview-popover-meta,
+.switcher .image-preview-popover-meta strong,
+.switcher .image-preview-popover-meta span {
+  color: var(--sw-detail-meta-color, #929890);
+  font-size: var(--sw-detail-meta-size, 10px);
+}
+
+.switcher .switcher-footer {
+  color: var(--sw-footer-color, #858b84);
+  font-size: var(--sw-footer-size, 9px);
+  border-color: var(--sw-border, #343834);
+}
+
+.switcher-customizer {
+  display: grid;
+  gap: 18px;
+}
+
+.switcher-editor-preview-wrap {
+  overflow: auto;
+  border: 1px solid var(--line, #dadcd8);
+  background: var(--surface-2, #f1f2ef);
+  padding: 18px;
+}
+
+.switcher-editor-preview {
+  width: min(100%, 760px);
+  min-height: 330px;
+  margin: 0 auto;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 18%);
+}
+
+.switcher-editor-preview .switcher-body {
+  display: grid;
+  grid-template-columns: minmax(240px, .84fr) minmax(260px, 1.16fr);
+  min-height: 230px;
+}
+
+.switcher-editor-preview .switcher-list {
+  justify-content: flex-start;
+}
+
+.switcher-editor-preview .clip-card {
+  width: 100%;
+  cursor: default;
+}
+
+.switcher-editor-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+
+.editor-image-placeholder {
+  flex: 1;
+  min-height: 150px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--sw-border, #343834);
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 4%) 25%, transparent 25%) 0 0 / 22px 22px,
+    var(--sw-row-bg, #151716);
+}
+
+.editor-image-placeholder span {
+  font-size: inherit;
+  color: inherit;
+  letter-spacing: .08em;
+}
+
+.switcher-control-group {
+  border-top: 1px solid var(--line, #dedfdb);
+}
+
+.switcher-control-heading {
+  padding: 14px 0 8px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.switcher-control-heading span {
+  color: var(--muted, #777b75);
+  font-size: 12px;
+}
+
+.switcher-control-row {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid color-mix(in srgb, var(--line, #dedfdb) 70%, transparent);
+}
+
+.switcher-control-inputs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sw-color-control,
+.sw-number-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sw-color-control input[type='color'] {
+  width: 32px;
+  height: 26px;
+  padding: 2px;
+  border: 1px solid var(--line, #d7d9d4);
+  background: transparent;
+}
+
+.sw-color-control code {
+  min-width: 62px;
+  font-size: 10px;
+  color: var(--muted, #777b75);
+}
+
+.sw-number-control input {
+  width: 64px;
+  min-height: 26px;
+  padding: 3px 6px;
+  border: 1px solid var(--line-strong, #bfc1b9);
+  border-radius: 3px;
+  outline: 0;
+  color: var(--text, #171815);
+  background: var(--surface, #fafaf8);
+}
+
+.sw-number-control input:focus {
+  border-color: var(--text, #171815);
+}
+
+.sw-number-control span {
+  color: var(--muted, #777b75);
+  font-size: 11px;
+}
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 13px;
+  border: 1px solid var(--line, #d7d9d4);
+  background: var(--surface-1, #fff);
+  margin-bottom: 14px;
+}
+
+.update-banner > div {
+  display: grid;
+  gap: 2px;
+}
+
+.update-banner span,
+.update-status-copy {
+  color: var(--muted, #747a72);
+  font-size: 12px;
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-progress {
+  width: 160px;
+  height: 5px;
+  overflow: hidden;
+  background: var(--line, #d7d9d4);
+}
+
+.update-progress > i {
+  display: block;
+  height: 100%;
+  background: currentColor;
+}
+
+@media (max-width: 820px) {
+  .switcher-editor-preview .switcher-body {
+    grid-template-columns: 1fr;
+  }
+
+  .switcher-editor-detail {
+    display: none;
+  }
+
+  .switcher-control-row {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 10px 0;
+  }
+}

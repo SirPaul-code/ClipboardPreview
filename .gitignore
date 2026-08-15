@@ -12,4 +12,5 @@ src-tauri/target/
 *.pfx
 *.cer
 *.mobileprovision
+*.key
 src-tauri/gen/

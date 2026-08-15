@@ -19,6 +19,30 @@ export interface ClipboardItem {
 
 export type InteractionMode = 'hold_release' | 'sticky';
 
+export interface SwitcherTextStyle {
+  fontSize: number;
+  color: string;
+}
+
+export interface SwitcherAppearance {
+  headerTitle: SwitcherTextStyle;
+  headerSubtitle: SwitcherTextStyle;
+  headerMeta: SwitcherTextStyle;
+  itemType: SwitcherTextStyle;
+  itemContent: SwitcherTextStyle;
+  itemMeta: SwitcherTextStyle;
+  detailContent: SwitcherTextStyle;
+  detailMeta: SwitcherTextStyle;
+  footer: SwitcherTextStyle;
+  panelBackground: string;
+  rowBackground: string;
+  selectedBackground: string;
+  borderColor: string;
+  selectedBorderColor: string;
+  rowHeight: number;
+  thumbnailSize: number;
+}
+
 export interface AppSettings {
   configVersion: number;
   firstRunCompleted: boolean;
@@ -31,6 +55,8 @@ export interface AppSettings {
   shortcuts: {
     quickPreview: string;
     historySelector: string;
+    previousItem: string;
+    nextItem: string;
     openSettings: string;
     pauseMonitoring: string;
   };
@@ -65,6 +91,7 @@ export interface AppSettings {
     compactSpacing: boolean;
     fontSize: number;
     reducedMotion: boolean;
+    switcher: SwitcherAppearance;
   };
   advanced: { debugLogging: boolean; clipboardPollIntervalMs: number };
 }
@@ -82,6 +109,8 @@ export interface HistoryPayload {
   appearance: AppSettings['appearance'];
   totalItems: number;
   shortcut: string;
+  previousShortcut: string;
+  nextShortcut: string;
   imagePreviewDelayMs: number;
   largePreviewPanel: boolean;
 }
@@ -105,5 +134,21 @@ export interface PlatformStatus {
   historyPerformanceWarningItems: number;
   lastCrashAvailable: boolean;
   version: string;
+  officialBuild: boolean;
+  updatesEnabled: boolean;
   startupWarnings: string[];
+}
+
+export interface UpdateStatus {
+  enabled: boolean;
+  available: boolean;
+  currentVersion: string;
+  version: string | null;
+  body: string | null;
+  date: string | null;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
 }
