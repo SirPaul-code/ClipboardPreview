@@ -17,7 +17,7 @@ concurrency:
 jobs:
   prepare-release:
     name: Resolve release version
-    if: github.ref_type == 'tag' || startsWith(github.event.head_commit.message, 'release: v')
+    if: "${{ github.ref_type == 'tag' || startsWith(github.event.head_commit.message, 'release: v') }}"
     runs-on: ubuntu-22.04
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
