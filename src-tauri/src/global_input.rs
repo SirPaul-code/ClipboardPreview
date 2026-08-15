@@ -359,7 +359,8 @@ fn schedule_tab_hold(app: AppHandle) {
             if state.tab_hold_triggered.swap(true, Ordering::SeqCst) {
                 return;
             }
-            state.settings.read().history.interaction_mode.clone()
+            let mode = state.settings.read().history.interaction_mode.clone();
+            mode
         };
 
         if let Err(error) = overlays::begin(&app, mode) {
