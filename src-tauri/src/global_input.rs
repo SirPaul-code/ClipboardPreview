@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub fn navigation_shortcut_supported(value: &str) -> bool {
-    let Some(key) = value.split('+').next_back() else {
+    let Some(key) = value.split('+').last() else {
         return false;
     };
     let key = key.trim();
@@ -234,11 +234,32 @@ fn canonical_key(event: &rdev::Event, key: rdev::Key) -> Option<String> {
         return Some(value.into());
     }
 
-    event
+    if let Some(name) = event
         .name
         .as_ref()
         .filter(|name| !name.is_empty() && name.chars().count() == 1)
-        .map(|name| name.to_uppercase())
+    {
+        return Some(name.to_uppercase());
+    }
+
+    let physical = match key {
+        Key::KeyA => Some("A"), Key::KeyB => Some("B"), Key::KeyC => Some("C"),
+        Key::KeyD => Some("D"), Key::KeyE => Some("E"), Key::KeyF => Some("F"),
+        Key::KeyG => Some("G"), Key::KeyH => Some("H"), Key::KeyI => Some("I"),
+        Key::KeyJ => Some("J"), Key::KeyK => Some("K"), Key::KeyL => Some("L"),
+        Key::KeyM => Some("M"), Key::KeyN => Some("N"), Key::KeyO => Some("O"),
+        Key::KeyP => Some("P"), Key::KeyQ => Some("Q"), Key::KeyR => Some("R"),
+        Key::KeyS => Some("S"), Key::KeyT => Some("T"), Key::KeyU => Some("U"),
+        Key::KeyV => Some("V"), Key::KeyW => Some("W"), Key::KeyX => Some("X"),
+        Key::KeyY => Some("Y"), Key::KeyZ => Some("Z"),
+        Key::Num0 | Key::Kp0 => Some("0"), Key::Num1 | Key::Kp1 => Some("1"),
+        Key::Num2 | Key::Kp2 => Some("2"), Key::Num3 | Key::Kp3 => Some("3"),
+        Key::Num4 | Key::Kp4 => Some("4"), Key::Num5 | Key::Kp5 => Some("5"),
+        Key::Num6 | Key::Kp6 => Some("6"), Key::Num7 | Key::Kp7 => Some("7"),
+        Key::Num8 | Key::Kp8 => Some("8"), Key::Num9 | Key::Kp9 => Some("9"),
+        _ => None,
+    };
+    physical.map(str::to_string)
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -283,7 +304,8 @@ fn schedule_tab_hold(app: AppHandle) {
             if state.tab_hold_triggered.swap(true, Ordering::SeqCst) {
                 return;
             }
-            state.settings.read().history.interaction_mode.clone()
+            let mode = state.settings.read().history.interaction_mode.clone();
+            mode
         };
 
         if let Err(error) = overlays::begin(&app, mode) {
