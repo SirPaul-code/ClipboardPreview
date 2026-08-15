@@ -1,9 +1,7 @@
-use std::{
-    collections::HashSet,
-    io::Cursor,
-    process::Command,
-    sync::atomic::Ordering,
-};
+use std::{collections::HashSet, io::Cursor, process::Command};
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use std::sync::atomic::Ordering;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::ImageOutputFormat;
@@ -95,8 +93,6 @@ fn apply_pause_transition(app: &AppHandle, was_paused: bool, is_paused: bool) {
         return;
     }
 
-    // Drop any captured Tab/modifier state before changing modes. While paused,
-    // the native hook returns every input event untouched.
     global_input::reset_state(app);
 
     if is_paused {
@@ -252,20 +248,18 @@ pub fn platform_status(app: AppHandle) -> PlatformStatus {
     let accessibility_granted = permissions::accessibility_granted();
     let input_monitoring_granted = permissions::input_monitoring_granted();
     let state = app.state::<AppState>();
-    let native_input_ready = if windows || mac {
-        state.native_input_ready.load(Ordering::SeqCst)
-    } else {
-        false
-    };
+
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    let native_input_ready = state.native_input_ready.load(Ordering::SeqCst);
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let native_input_ready = false;
+
     let startup_warnings = state.startup_warnings.read().clone();
 
     PlatformStatus {
         os: std::env::consts::OS.into(),
         accessibility_required: mac,
         accessibility_granted,
-        // The active kCGSessionEventTap used by Clipboard Preview is governed by
-        // Accessibility. Input Monitoring is shown separately for transparency,
-        // but is not required by this capture implementation.
         input_monitoring_required: false,
         input_monitoring_granted,
         native_input_ready,
