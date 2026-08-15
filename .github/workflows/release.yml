@@ -144,7 +144,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-check
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > release-check/release.json
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > release-check/releases.json
+          node <<'NODE'
+          const fs = require('fs');
+          const tag = process.env.RELEASE_TAG;
+          const releases = JSON.parse(fs.readFileSync('release-check/releases.json', 'utf8'));
+          const release = releases.find((entry) => entry.tag_name === tag && entry.draft === true);
+          if (!release) {
+            console.error(`Draft release ${tag} was not found`);
+            process.exit(1);
+          }
+          fs.writeFileSync('release-check/release.json', JSON.stringify(release));
+          NODE
           ASSET_ID="$(node -p "JSON.parse(require('fs').readFileSync('release-check/release.json','utf8')).assets.find(a => a.name === 'latest.json')?.id ?? ''")"
           if [ -z "$ASSET_ID" ]; then
             echo "latest.json is missing from the draft release" >&2
@@ -161,5 +172,14 @@ jobs:
       - name: Publish only after every platform and updater target succeeded
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
-        run: gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_ID="$(node -p "JSON.parse(require('fs').readFileSync('release-check/release.json','utf8')).id")"
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false \
+            -f make_latest=true \
+            > release-check/published.json
+          node -e "const r=require('./release-check/published.json'); if(r.draft || r.tag_name !== 'v' + require('./package.json').version) process.exit(1)"
