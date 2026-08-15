@@ -13,11 +13,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  frontend:
-    name: Frontend checks
-    runs-on: ubuntu-latest
+  lockfiles:
+    name: Generate candidate lockfiles
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Refresh npm lock metadata
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Refresh Cargo lock
+        run: cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-lockfiles
+          path: |
+            package-lock.json
+            src-tauri/Cargo.lock
+          if-no-files-found: error
+
+  frontend:
+    name: Frontend checks
+    needs: lockfiles
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-lockfiles
+          path: .
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -27,6 +54,7 @@ jobs:
 
   native:
     name: Native ${{ matrix.name }}
+    needs: lockfiles
     strategy:
       fail-fast: false
       matrix:
@@ -37,9 +65,32 @@ jobs:
             os: macos-15
           - name: macOS Intel
             os: macos-15-intel
+          - name: Linux x64
+            os: ubuntu-22.04
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-lockfiles
+          path: .
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libfuse2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
