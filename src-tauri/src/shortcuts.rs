@@ -9,6 +9,21 @@ fn parse(value: &str) -> Option<Shortcut> {
     Shortcut::from_str(value).ok()
 }
 
+pub fn history_uses_native_capture(value: &str) -> bool {
+    if value.trim().is_empty() {
+        return false;
+    }
+    if value.eq_ignore_ascii_case("Tab") {
+        return true;
+    }
+
+    // On macOS, keep ordinary parseable shortcuts on the OS global-hotkey path.
+    // Only layout-specific values that the plugin cannot parse (for example §)
+    // need the native event tap. This gives us a permission-independent fallback
+    // instead of making every macOS switcher shortcut depend on rdev.
+    cfg!(target_os = "macos") && parse(value).is_none()
+}
+
 fn action(app: &AppHandle, shortcut: &Shortcut, event_state: ShortcutState) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
@@ -35,8 +50,7 @@ fn action(app: &AppHandle, shortcut: &Shortcut, event_state: ShortcutState) {
 
     if quick_preview.as_ref() == Some(shortcut) && matches!(event_state, ShortcutState::Pressed) {
         let _ = overlays::show_quick(app);
-    } else if !cfg!(target_os = "macos")
-        && !settings.shortcuts.history_selector.eq_ignore_ascii_case("Tab")
+    } else if !history_uses_native_capture(&settings.shortcuts.history_selector)
         && history.as_ref() == Some(shortcut)
     {
         match event_state {
@@ -85,12 +99,7 @@ pub fn register_all(app: &AppHandle) -> Result<(), String> {
             settings.shortcuts.open_settings.as_str(),
             settings.shortcuts.pause_monitoring.as_str(),
         ];
-        // macOS history selection uses the native rdev event tap for every binding,
-        // not muda's limited key parser. This allows layout-specific printable keys
-        // such as § while preserving hold/release semantics and wheel navigation.
-        if !cfg!(target_os = "macos")
-            && !settings.shortcuts.history_selector.eq_ignore_ascii_case("Tab")
-        {
+        if !history_uses_native_capture(&settings.shortcuts.history_selector) {
             shortcuts.push(settings.shortcuts.history_selector.as_str());
         }
         shortcuts
@@ -107,4 +116,25 @@ pub fn register_all(app: &AppHandle) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tab_stays_on_native_capture() {
+        assert!(history_uses_native_capture("Tab"));
+    }
+
+    #[test]
+    fn ordinary_shortcut_stays_on_global_hotkey_path() {
+        assert!(!history_uses_native_capture("Ctrl+Alt+J"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn layout_specific_key_uses_native_capture_on_macos() {
+        assert!(history_uses_native_capture("§"));
+    }
 }
