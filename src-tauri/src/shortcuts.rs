@@ -68,7 +68,8 @@ pub fn register_all(app: &AppHandle) -> Result<(), String> {
         let Some(state) = app.try_state::<AppState>() else {
             return Err("Application state is not ready for shortcut registration".into());
         };
-        state.settings.read().clone()
+        let settings = state.settings.read().clone();
+        settings
     };
 
     let manager = app.global_shortcut();
