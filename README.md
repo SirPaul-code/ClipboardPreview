@@ -5,7 +5,7 @@
 Clipboard Preview is a lightweight local clipboard switcher for **Windows 10/11, macOS 11+, and Linux x64**. It keeps recent text and images close to the app you are already using, without accounts, analytics, cloud sync, or a remote clipboard service.
 
 <p align="center">
-  <img src="assets/cc7261d8-8fd0-492a-8aa6-e5a7d65f3394.gif" alt="Clipboard Preview demo" width="1100">
+  <img src="assets/2026-08-15 18-16-06.gif" alt="Clipboard Preview demo" width="1100">
 </p>
 
 **Tauri 2 · Rust · React · TypeScript**
