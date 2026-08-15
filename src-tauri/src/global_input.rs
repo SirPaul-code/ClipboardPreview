@@ -19,10 +19,10 @@ use crate::{
 };
 
 #[cfg(target_os = "macos")]
-use crate::permissions;
+use crate::{permissions, shortcuts};
 
 #[cfg(target_os = "macos")]
-const MAC_ACCESSIBILITY_WARNING: &str = "Clipboard Switcher keyboard and wheel capture need macOS Accessibility permission. Enable Clipboard Preview in System Settings → Privacy & Security → Accessibility; capture activates automatically after permission is granted.";
+const MAC_NATIVE_INPUT_WARNING: &str = "Clipboard Switcher native keyboard and wheel capture needs macOS Accessibility and Input Monitoring permission. Clipboard Preview will open the required Privacy & Security panes; capture activates automatically after both permissions are granted.";
 
 pub fn navigation_shortcut_supported(value: &str) -> bool {
     let Some(key) = value.split('+').next_back() else {
@@ -69,15 +69,13 @@ pub fn start(app: AppHandle) {
     thread::spawn(move || {
         #[cfg(target_os = "macos")]
         {
-            if !permissions::accessibility_granted() {
-                push_warning(&app, MAC_ACCESSIBILITY_WARNING);
-                if let Err(error) = permissions::open_accessibility_settings() {
-                    log::warn!("Could not open macOS Accessibility settings: {error}");
+            if !permissions::native_input_permissions_granted() {
+                push_warning(&app, MAC_NATIVE_INPUT_WARNING);
+                if let Err(error) = permissions::wait_for_native_input_permissions() {
+                    log::warn!("Could not complete macOS native input permission flow: {error}");
+                    return;
                 }
-                while !permissions::accessibility_granted() {
-                    thread::sleep(Duration::from_millis(750));
-                }
-                remove_warning(&app, MAC_ACCESSIBILITY_WARNING);
+                remove_warning(&app, MAC_NATIVE_INPUT_WARNING);
             }
         }
 
@@ -222,10 +220,13 @@ fn handle_macos_history_trigger(app: &AppHandle, state: &AppState, event: &rdev:
         )
     };
 
-    // Plain Tab keeps its tap-vs-hold replay path below. Every other macOS
-    // switcher binding is captured here so keyboard-layout characters such as §
-    // do not have to pass through muda's finite hotkey-key parser.
-    if shortcut.eq_ignore_ascii_case("Tab") || shortcut.trim().is_empty() {
+    // Plain Tab keeps its tap-vs-hold replay path below. Parseable macOS
+    // shortcuts stay on the OS global-hotkey path; only layout-specific values
+    // such as § are captured here through rdev.
+    if shortcut.eq_ignore_ascii_case("Tab")
+        || shortcut.trim().is_empty()
+        || !shortcuts::history_uses_native_capture(&shortcut)
+    {
         return false;
     }
 
