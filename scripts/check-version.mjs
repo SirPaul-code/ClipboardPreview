@@ -3,6 +3,8 @@ import fs from 'node:fs';
 const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const cargo = fs.readFileSync(new URL('../src-tauri/Cargo.toml', import.meta.url), 'utf8');
 const tauri = JSON.parse(fs.readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+const releaseTauri = JSON.parse(fs.readFileSync(new URL('../src-tauri/tauri.release.conf.json', import.meta.url), 'utf8'));
+const updaterPublicKey = fs.readFileSync(new URL('../src-tauri/updater.pub', import.meta.url), 'utf8').trim();
 
 const rustVersion = cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
 const versions = { package: pkg.version, cargo: rustVersion, tauri: tauri.version };
@@ -29,9 +31,33 @@ if (eagerWindows.length) {
   process.exit(1);
 }
 
+if (tauri.bundle?.createUpdaterArtifacts) {
+  console.error('Clone invariant violated: base tauri.conf.json must not create updater artifacts or require signing secrets.');
+  process.exit(1);
+}
+
+if (releaseTauri.bundle?.createUpdaterArtifacts !== true) {
+  console.error('Release invariant violated: tauri.release.conf.json must enable updater artifacts.');
+  process.exit(1);
+}
+
 if (/^\s*panic\s*=\s*"abort"\s*$/m.test(cargo)) {
   console.error('Release panic=abort is forbidden: crash diagnostics require unwind-capable Rust panics.');
   process.exit(1);
 }
 
-console.log(`Version ${pkg.version} is synchronized and startup invariants are preserved.`);
+const officialBuild = process.env.CLIPBOARD_PREVIEW_OFFICIAL_BUILD === '1';
+if (officialBuild) {
+  if (!process.env.TAURI_SIGNING_PRIVATE_KEY?.trim()) {
+    console.error('Official release invariant violated: TAURI_SIGNING_PRIVATE_KEY is missing.');
+    process.exit(1);
+  }
+  if (!updaterPublicKey || updaterPublicKey.includes('PLACEHOLDER')) {
+    console.error('Official release invariant violated: src-tauri/updater.pub still contains the placeholder.');
+    process.exit(1);
+  }
+}
+
+console.log(
+  `Version ${pkg.version} is synchronized. Startup, clone-safe updater, and ${officialBuild ? 'official release' : 'source build'} invariants are preserved.`
+);
