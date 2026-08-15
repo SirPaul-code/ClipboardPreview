@@ -85,6 +85,8 @@ jobs:
       - name: Strict Rust lint from committed lockfile
         run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - name: Build distributable bundle without release secrets
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
         run: npm run tauri build -- --bundles ${{ matrix.bundles }}
       - name: Upload smoke-test bundles
         uses: actions/upload-artifact@v4
