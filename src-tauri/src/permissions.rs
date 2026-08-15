@@ -15,8 +15,13 @@ extern "C" {
 }
 
 #[cfg(target_os = "macos")]
-fn accessibility_only_granted() -> bool {
+pub fn accessibility_granted() -> bool {
     unsafe { AXIsProcessTrusted() != 0 }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn accessibility_granted() -> bool {
+    true
 }
 
 #[cfg(target_os = "macos")]
@@ -30,15 +35,12 @@ pub fn input_monitoring_granted() -> bool {
 }
 
 #[cfg(target_os = "macos")]
-pub fn accessibility_granted() -> bool {
-    // Clipboard Preview's native switcher capture is an active CGEventTap. On
-    // current macOS releases it needs both Accessibility (to filter/replay input)
-    // and Input Monitoring (to receive global keyboard events reliably).
-    accessibility_only_granted() && input_monitoring_granted()
+pub fn native_input_permissions_granted() -> bool {
+    accessibility_granted() && input_monitoring_granted()
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn accessibility_granted() -> bool {
+pub fn native_input_permissions_granted() -> bool {
     true
 }
 
@@ -65,17 +67,18 @@ pub fn open_input_monitoring_settings() -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 pub fn wait_for_native_input_permissions() -> Result<(), String> {
-    if !accessibility_only_granted() {
+    if !accessibility_granted() {
         open_accessibility_settings()?;
-        while !accessibility_only_granted() {
+        while !accessibility_granted() {
             thread::sleep(Duration::from_millis(750));
         }
     }
 
     if !input_monitoring_granted() {
-        // This is the Core Graphics API intended to trigger the Input Monitoring
-        // consent flow. The settings pane is also opened because ad-hoc-signed
-        // community builds can lose TCC identity across application updates.
+        // CGEventTap has its own TCC service. Asking through Core Graphics first
+        // gives macOS a chance to show the native Input Monitoring consent flow.
+        // The settings pane is also opened because ad-hoc-signed community builds
+        // can be treated as a new TCC identity after an application update.
         unsafe {
             let _ = CGRequestListenEventAccess();
         }
