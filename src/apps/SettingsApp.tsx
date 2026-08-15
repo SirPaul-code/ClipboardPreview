@@ -23,6 +23,7 @@ import type {
   UpdateStatus
 } from '../types';
 import { ClipboardCard } from '../components/ClipboardCard';
+import { MacPermissionPanel } from '../components/MacPermissionPanel';
 import { NumberField, Row, Section, Toggle } from '../components/SettingsControls';
 import { ShortcutRecorder } from '../components/ShortcutRecorder';
 import { SwitcherAppearanceEditor } from '../components/SwitcherAppearanceEditor';
@@ -79,6 +80,16 @@ export function SettingsApp() {
     ]).then((listeners) => offs.push(...listeners));
     return () => offs.forEach((off) => off());
   }, []);
+
+  // TCC changes can happen while System Settings is in front. Poll on macOS so
+  // the UI changes from REQUIRED -> GRANTED -> READY without an app restart.
+  useEffect(() => {
+    if (status?.os !== 'macos') return;
+    const timer = window.setInterval(() => {
+      void backend.status().then(setStatus).catch(() => undefined);
+    }, 750);
+    return () => window.clearInterval(timer);
+  }, [status?.os]);
 
   const save = useCallback(
     async (next: AppSettings) => {
@@ -156,6 +167,7 @@ export function SettingsApp() {
 
   const performanceThreshold = status?.historyPerformanceWarningItems ?? 150;
   const memoryBudget = status?.historyMemoryBudgetMib ?? 192;
+  const mac = status?.os === 'macos';
   const tabHold = Boolean(status?.tabHoldAvailable && settings.shortcuts.historySelector.toLowerCase() === 'tab');
   const progressPercent = updateProgress?.total
     ? Math.min(100, Math.round((updateProgress.downloaded / updateProgress.total) * 100))
@@ -215,10 +227,12 @@ export function SettingsApp() {
               <section className="switcher-hero">
                 <div className="hero-copy-block">
                   <span className="eyebrow">Default gesture</span>
-                  {tabHold ? (
+                  {mac && !status?.nativeInputReady ? (
+                    <><h2>Finish macOS input setup first.</h2><p>Clipboard Preview only reports the switcher as ready after its native global event tap is actually running. Open Switcher to see the live permission and capture state.</p></>
+                  ) : tabHold ? (
                     <><h2>Hold <kbd>Tab</kbd>. Scroll or use keys. Release.</h2><p>A quick tap still behaves like a normal Tab. While holding it, use the wheel or your configured Previous/Next keys, then release to restore the selected item.</p></>
                   ) : (
-                    <><h2>Press <kbd>{settings.shortcuts.historySelector}</kbd>. Browse. Select.</h2><p>This platform uses the reliable global-shortcut path. Scroll or use your configured Previous/Next keys, then press Enter to restore the selected item.</p></>
+                    <><h2>Press <kbd>{settings.shortcuts.historySelector}</kbd>. Browse. Select.</h2><p>Use the configured switcher trigger, then scroll or use your Previous/Next keys to choose an item.</p></>
                   )}
                 </div>
                 <div className="hero-steps" aria-label="Clipboard switcher steps">
@@ -230,7 +244,7 @@ export function SettingsApp() {
                 <Row label="Launch at startup"><Toggle checked={settings.general.launchAtStartup} onChange={(value) => patch('general', { ...settings.general, launchAtStartup: value })} /></Row>
                 <Row label="Start hidden" hint="Only applies to OS autostart. Manual launches always open Settings."><Toggle checked={settings.general.startHidden} onChange={(value) => patch('general', { ...settings.general, startHidden: value })} /></Row>
                 <Row label="Tray / menu bar icon"><Toggle checked={settings.general.showTrayIcon} onChange={(value) => patch('general', { ...settings.general, showTrayIcon: value })} /></Row>
-                <Row label="Pause clipboard monitoring" hint="Existing history remains available"><Toggle checked={settings.general.monitoringPaused} onChange={(value) => patch('general', { ...settings.general, monitoringPaused: value })} /></Row>
+                <Row label="Pause Clipboard Preview" hint="Releases switcher input and stops clipboard capture until resumed"><Toggle checked={settings.general.monitoringPaused} onChange={(value) => patch('general', { ...settings.general, monitoringPaused: value })} /></Row>
               </Section>
 
               <Section title="Recent clipboard">
@@ -244,8 +258,21 @@ export function SettingsApp() {
 
           {tab === 'switcher' && (
             <>
-              <Section title="Shortcuts" description={status?.tabHoldAvailable ? 'Tab is handled as tap-vs-hold so short taps continue to work normally. Previous/Next bindings are only consumed while the switcher is open.' : 'Use a modifier-based switcher shortcut on this platform. Previous/Next bindings are only active inside the open switcher.'}>
-                <Row label="Clipboard Switcher" hint={status?.tabHoldAvailable ? 'Default: Tab' : 'Default: Ctrl+Alt+J'}><ShortcutRecorder value={settings.shortcuts.historySelector} onChange={(value) => patch('shortcuts', { ...settings.shortcuts, historySelector: value })} /></Row>
+              <MacPermissionPanel status={status} />
+
+              <Section
+                title="Shortcuts"
+                description={
+                  mac
+                    ? status?.nativeInputReady
+                      ? 'macOS native input is ready. The history trigger, including Tab and layout-specific keys, is captured by the session event tap; Previous/Next are consumed only while the switcher is open.'
+                      : 'Grant Accessibility above and wait for Switcher input to show READY. Shortcut changes are saved now but cannot be captured globally until native input is running.'
+                    : status?.tabHoldAvailable
+                      ? 'Tab is handled as tap-vs-hold so short taps continue to work normally. Previous/Next bindings are only consumed while the switcher is open.'
+                      : 'Use a modifier-based switcher shortcut on this platform. Previous/Next bindings are only active inside the open switcher.'
+                }
+              >
+                <Row label="Clipboard Switcher" hint={mac ? 'Default: Tab · printable/layout-specific keys supported' : status?.tabHoldAvailable ? 'Default: Tab' : 'Default: Ctrl+Alt+J'}><ShortcutRecorder value={settings.shortcuts.historySelector} onChange={(value) => patch('shortcuts', { ...settings.shortcuts, historySelector: value })} /></Row>
                 <Row label="Previous item" hint="Default: ArrowUp"><ShortcutRecorder value={settings.shortcuts.previousItem} onChange={(value) => patch('shortcuts', { ...settings.shortcuts, previousItem: value })} /></Row>
                 <Row label="Next item" hint="Default: ArrowDown"><ShortcutRecorder value={settings.shortcuts.nextItem} onChange={(value) => patch('shortcuts', { ...settings.shortcuts, nextItem: value })} /></Row>
                 <Row label="Quick Preview"><ShortcutRecorder value={settings.shortcuts.quickPreview} onChange={(value) => patch('shortcuts', { ...settings.shortcuts, quickPreview: value })} /></Row>
@@ -313,8 +340,8 @@ export function SettingsApp() {
               <Section title="Native integration">
                 <Row label="Clipboard poll interval"><NumberField value={settings.advanced.clipboardPollIntervalMs} min={150} max={1500} step={50} suffix="ms" onChange={(value) => patch('advanced', { ...settings.advanced, clipboardPollIntervalMs: value })} /></Row>
                 <Row label="Debug logging" hint="Clipboard contents are never intentionally logged"><Toggle checked={settings.advanced.debugLogging} onChange={(value) => patch('advanced', { ...settings.advanced, debugLogging: value })} /></Row>
-                {status?.accessibilityRequired ? <div className={status.accessibilityGranted ? 'permission-ok' : 'warning'}>{status.accessibilityGranted ? 'macOS Accessibility access is available for Tab hold and global wheel/keyboard selection.' : 'Grant macOS Accessibility access to use the default Tab hold gesture. Modifier-based sticky shortcuts remain available without it.'}</div> : null}
               </Section>
+              <MacPermissionPanel status={status} />
 
               <Section title="Diagnostics" description="Crash and startup diagnostics stay local and never intentionally contain clipboard contents.">
                 <div className="diagnostic-actions">
@@ -372,22 +399,25 @@ export function SettingsApp() {
 }
 
 function FirstRun({ settings, status, onDone }: { settings: AppSettings; status: PlatformStatus | null; onDone: () => void }) {
+  const mac = status?.os === 'macos';
   const tabHold = Boolean(status?.tabHoldAvailable && settings.shortcuts.historySelector.toLowerCase() === 'tab');
+  const canStart = !mac || Boolean(status?.nativeInputReady);
+
   return (
     <main className="first-run">
       <div className="first-card">
         <div className="hero-mark"><Clipboard size={27} /></div>
         <span className="eyebrow">Clipboard Preview</span>
-        <h1>{tabHold ? 'Hold Tab. Pick anything.' : 'Your clipboard, one shortcut away.'}</h1>
-        <p className="hero-copy">{tabHold ? `Text and images stay local. Hold Tab, then use the wheel or ${settings.shortcuts.previousItem}/${settings.shortcuts.nextItem} to browse.` : `Text and images stay local. Use ${settings.shortcuts.historySelector} to open the switcher on this platform.`}</p>
+        <h1>{mac && !status?.nativeInputReady ? 'Enable macOS switcher input.' : tabHold ? 'Hold Tab. Pick anything.' : 'Your clipboard, one shortcut away.'}</h1>
+        <p className="hero-copy">{mac && !status?.nativeInputReady ? 'Grant Accessibility below. Clipboard Preview will show READY only after its global input hook is actually running.' : tabHold ? `Text and images stay local. Hold Tab, then use the wheel or ${settings.shortcuts.previousItem}/${settings.shortcuts.nextItem} to browse.` : `Text and images stay local. Use ${settings.shortcuts.historySelector} to open the switcher on this platform.`}</p>
         <div className="first-shortcuts">
           <div><span>Clipboard Switcher</span><kbd>{settings.shortcuts.historySelector}</kbd></div>
           <div><span>Previous / Next</span><kbd>{settings.shortcuts.previousItem} · {settings.shortcuts.nextItem}</kbd></div>
           <div><span>Quick Preview</span><kbd>{settings.shortcuts.quickPreview}</kbd></div>
         </div>
         {status?.startupWarnings?.length ? <div className="warning">{status.startupWarnings.join(' ')}</div> : null}
-        {status?.accessibilityRequired && !status.accessibilityGranted ? <p className="permission-copy">On macOS, the default Tab hold gesture and global wheel/keyboard capture require Accessibility permission. You can also choose a modifier-based shortcut in Settings.</p> : null}
-        <button className="primary" onClick={onDone}>Start Clipboard Preview</button>
+        <MacPermissionPanel status={status} />
+        <button className="primary" onClick={onDone} disabled={!canStart}>{canStart ? 'Start Clipboard Preview' : 'Waiting for macOS input…'}</button>
         <p className="local-copy"><Shield size={14} /> Everything stays on this device.</p>
       </div>
     </main>

@@ -11,7 +11,6 @@ extern "C" {
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGPreflightListenEventAccess() -> bool;
-    fn CGRequestListenEventAccess() -> bool;
 }
 
 #[cfg(target_os = "macos")]
@@ -24,17 +23,27 @@ pub fn input_monitoring_granted() -> bool {
     unsafe { CGPreflightListenEventAccess() }
 }
 
-#[cfg(target_os = "macos")]
-pub fn native_input_permissions_granted() -> bool {
-    accessibility_trusted() && input_monitoring_granted()
+#[cfg(not(target_os = "macos"))]
+pub fn input_monitoring_granted() -> bool {
+    true
 }
 
-// PlatformStatus historically exposes this as `accessibilityGranted`. Keep that
-// field backward compatible, but on macOS make it mean "native switcher input is
-// authorized" because Tab hold requires both TCC services.
+#[cfg(target_os = "macos")]
+pub fn native_input_permissions_granted() -> bool {
+    // Clipboard Preview uses an active kCGSessionEventTap. Apple authorizes a
+    // modifying event tap through Accessibility. Input Monitoring is only needed
+    // for passive listen-only taps, so it is intentionally not a prerequisite.
+    accessibility_trusted()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn native_input_permissions_granted() -> bool {
+    true
+}
+
 #[cfg(target_os = "macos")]
 pub fn accessibility_granted() -> bool {
-    native_input_permissions_granted()
+    accessibility_trusted()
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -68,25 +77,8 @@ pub fn wait_for_native_input_permissions() -> Result<(), String> {
     if !accessibility_trusted() {
         open_accessibility_settings()?;
         while !accessibility_trusted() {
-            thread::sleep(Duration::from_millis(750));
+            thread::sleep(Duration::from_millis(500));
         }
     }
-
-    if !input_monitoring_granted() {
-        // CGEventTap has its own TCC service. Asking through Core Graphics first
-        // gives macOS a chance to show the native Input Monitoring consent flow.
-        // The settings pane is also opened because ad-hoc-signed community builds
-        // can be treated as a new TCC identity after an application update.
-        unsafe {
-            let _ = CGRequestListenEventAccess();
-        }
-        if !input_monitoring_granted() {
-            open_input_monitoring_settings()?;
-            while !input_monitoring_granted() {
-                thread::sleep(Duration::from_millis(750));
-            }
-        }
-    }
-
     Ok(())
 }

@@ -126,6 +126,9 @@ export interface PlatformStatus {
   os: string;
   accessibilityRequired: boolean;
   accessibilityGranted: boolean;
+  inputMonitoringRequired: boolean;
+  inputMonitoringGranted: boolean;
+  nativeInputReady: boolean;
   holdReleaseAvailable: boolean;
   globalWheelAvailable: boolean;
   tabHoldAvailable: boolean;

@@ -3,6 +3,8 @@ mod commands;
 mod diagnostics;
 mod global_input;
 mod history;
+#[cfg(target_os = "macos")]
+mod macos_event_tap;
 mod models;
 mod overlays;
 mod permissions;
@@ -142,6 +144,14 @@ pub fn run() {
             create_configured_windows(app);
 
             clipboard::start(app.handle().clone());
+            #[cfg(target_os = "macos")]
+            {
+                // Keep the legacy entry point referenced for cross-platform linting,
+                // but never execute its rdev kCGHIDEventTap path on macOS.
+                let _legacy_global_input_start: fn(tauri::AppHandle) = global_input::start;
+                macos_event_tap::start(app.handle().clone());
+            }
+            #[cfg(not(target_os = "macos"))]
             global_input::start(app.handle().clone());
             updates::schedule_background_check(app.handle().clone());
 
@@ -189,6 +199,8 @@ pub fn run() {
             commands::open_settings,
             commands::toggle_monitoring,
             commands::platform_status,
+            commands::open_macos_accessibility_settings,
+            commands::open_macos_input_monitoring_settings,
             commands::diagnostics_report,
             commands::clear_diagnostics,
             commands::open_diagnostics_folder,

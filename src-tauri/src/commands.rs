@@ -1,5 +1,8 @@
 use std::{collections::HashSet, io::Cursor, process::Command};
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use std::sync::atomic::Ordering;
+
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::ImageOutputFormat;
 use tauri::{AppHandle, Manager};
@@ -90,8 +93,6 @@ fn apply_pause_transition(app: &AppHandle, was_paused: bool, is_paused: bool) {
         return;
     }
 
-    // Drop any captured Tab/modifier state before changing modes. While paused,
-    // the native hook returns every input event untouched.
     global_input::reset_state(app);
 
     if is_paused {
@@ -245,16 +246,26 @@ pub fn platform_status(app: AppHandle) -> PlatformStatus {
     let mac = cfg!(target_os = "macos");
     let linux = cfg!(target_os = "linux");
     let accessibility_granted = permissions::accessibility_granted();
+    let input_monitoring_granted = permissions::input_monitoring_granted();
     let state = app.state::<AppState>();
+
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    let native_input_ready = state.native_input_ready.load(Ordering::SeqCst);
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let native_input_ready = false;
+
     let startup_warnings = state.startup_warnings.read().clone();
 
     PlatformStatus {
         os: std::env::consts::OS.into(),
         accessibility_required: mac,
         accessibility_granted,
-        hold_release_available: windows || (mac && accessibility_granted),
-        global_wheel_available: windows || (mac && accessibility_granted),
-        tab_hold_available: windows || (mac && accessibility_granted),
+        input_monitoring_required: false,
+        input_monitoring_granted,
+        native_input_ready,
+        hold_release_available: windows || (mac && native_input_ready),
+        global_wheel_available: windows || (mac && native_input_ready),
+        tab_hold_available: windows || (mac && native_input_ready),
         image_history_available: windows || mac || linux,
         history_memory_budget_mib: HISTORY_MEMORY_BUDGET_MIB,
         history_performance_warning_items: HISTORY_PERF_WARNING_ITEMS,
@@ -263,6 +274,30 @@ pub fn platform_status(app: AppHandle) -> PlatformStatus {
         official_build: updates::official_build(),
         updates_enabled: updates::ready(),
         startup_warnings,
+    }
+}
+
+#[tauri::command]
+pub fn open_macos_accessibility_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        permissions::open_accessibility_settings()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("macOS Accessibility settings are only available on macOS".into())
+    }
+}
+
+#[tauri::command]
+pub fn open_macos_input_monitoring_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        permissions::open_input_monitoring_settings()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("macOS Input Monitoring settings are only available on macOS".into())
     }
 }
 
