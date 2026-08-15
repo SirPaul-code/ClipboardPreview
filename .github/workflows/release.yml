@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-release:
     name: Release ${{ matrix.name }}
@@ -17,38 +21,86 @@ jobs:
         include:
           - name: Windows x64
             os: windows-latest
+            bundles: msi,nsis
           - name: macOS Apple Silicon
             os: macos-15
+            bundles: app,dmg
           - name: macOS Intel
             os: macos-15-intel
+            bundles: app,dmg
+          - name: Linux x64
+            os: ubuntu-22.04
+            bundles: appimage,deb
     runs-on: ${{ matrix.os }}
+    env:
+      CLIPBOARD_PREVIEW_OFFICIAL_BUILD: '1'
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libfuse2
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install locked frontend dependencies
+
+      - name: Install exactly committed frontend dependencies
         run: npm ci
-      - name: Validate version, tag, and startup invariants
+
+      - name: Validate version, tag, startup, and signing invariants
         run: npm run check:version
+
       - name: Verify locked Rust dependency graph
         run: cargo metadata --locked --manifest-path src-tauri/Cargo.toml --no-deps
-      - name: Build and upload release bundles
+
+      - name: Build and upload signed updater bundles
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Clipboard Preview ${{ github.ref_name }}
           releaseBody: |
-            Clipboard Preview community build.
+            Clipboard Preview official community release.
 
-            These artifacts are unsigned unless signing credentials are explicitly configured. Windows SmartScreen or macOS Gatekeeper may show a warning.
-          releaseDraft: false
+            Automatic updater artifacts are cryptographically signed by the Clipboard Preview updater key. Windows binaries are not Authenticode-signed and macOS community builds use ad-hoc signing unless platform signing credentials are configured separately.
+          releaseDraft: true
           prerelease: false
           generateReleaseNotes: true
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: false
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+          updaterJsonPreferNsis: true
+          retryAttempts: 2
+          args: --config src-tauri/tauri.release.conf.json --bundles ${{ matrix.bundles }}
           releaseAssetNamePattern: ClipboardPreview-[version]-[platform]-[arch][setup][ext]
+
+  publish-release:
+    name: Publish complete release
+    needs: build-release
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Publish only after every platform succeeded
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest
