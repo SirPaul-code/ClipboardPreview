@@ -14,9 +14,15 @@ use tauri::{Emitter, Manager};
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use crate::{
     models::{InteractionMode, TAB_HOLD_DELAY_MS},
-    overlays, permissions, selection,
+    overlays, selection,
     state::AppState,
 };
+
+#[cfg(target_os = "macos")]
+use crate::permissions;
+
+#[cfg(target_os = "macos")]
+const MAC_ACCESSIBILITY_WARNING: &str = "Clipboard Switcher keyboard and wheel capture need macOS Accessibility permission. Enable Clipboard Preview in System Settings → Privacy & Security → Accessibility; capture activates automatically after permission is granted.";
 
 pub fn navigation_shortcut_supported(value: &str) -> bool {
     let Some(key) = value.split('+').next_back() else {
@@ -60,43 +66,54 @@ pub fn navigation_shortcut_supported(value: &str) -> bool {
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 pub fn start(app: AppHandle) {
-    if cfg!(target_os = "macos") && !permissions::accessibility_granted() {
-        push_warning(
-            &app,
-            "Tab hold and global wheel/keyboard selection need macOS Accessibility permission. Grant it or choose a modifier-based History shortcut in Settings.",
-        );
-        return;
+    thread::spawn(move || {
+        #[cfg(target_os = "macos")]
+        {
+            if !permissions::accessibility_granted() {
+                push_warning(&app, MAC_ACCESSIBILITY_WARNING);
+                if let Err(error) = permissions::open_accessibility_settings() {
+                    log::warn!("Could not open macOS Accessibility settings: {error}");
+                }
+                while !permissions::accessibility_granted() {
+                    thread::sleep(Duration::from_millis(750));
+                }
+                remove_warning(&app, MAC_ACCESSIBILITY_WARNING);
+            }
+        }
+
+        run_grab(app);
+    });
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn run_grab(app: AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        state.native_input_ready.store(true, Ordering::SeqCst);
     }
 
-    thread::spawn(move || {
-        if let Some(state) = app.try_state::<AppState>() {
-            state.native_input_ready.store(true, Ordering::SeqCst);
-        }
-
-        let callback_app = app.clone();
-        let result = rdev::grab(move |event| {
-            let fallback = event.clone();
-            match catch_unwind(AssertUnwindSafe(|| handle_event(&callback_app, event))) {
-                Ok(value) => value,
-                Err(_) => {
-                    log::error!("Global input callback panicked; passing the input event through");
-                    Some(fallback)
-                }
+    let callback_app = app.clone();
+    let result = rdev::grab(move |event| {
+        let fallback = event.clone();
+        match catch_unwind(AssertUnwindSafe(|| handle_event(&callback_app, event))) {
+            Ok(value) => value,
+            Err(_) => {
+                log::error!("Global input callback panicked; passing the input event through");
+                Some(fallback)
             }
-        });
-
-        if let Some(state) = app.try_state::<AppState>() {
-            state.native_input_ready.store(false, Ordering::SeqCst);
-        }
-
-        if let Err(error) = result {
-            let message = format!(
-                "Global input capture stopped: {error:?}. Tab hold, wheel and hold-mode navigation keys are unavailable; choose sticky mode or another History shortcut if needed."
-            );
-            log::warn!("{message}");
-            push_warning(&app, &message);
         }
     });
+
+    if let Some(state) = app.try_state::<AppState>() {
+        state.native_input_ready.store(false, Ordering::SeqCst);
+    }
+
+    if let Err(error) = result {
+        let message = format!(
+            "Global input capture stopped: {error:?}. Clipboard Switcher keyboard/wheel capture is unavailable until the app is restarted."
+        );
+        log::warn!("{message}");
+        push_warning(&app, &message);
+    }
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -108,6 +125,10 @@ fn reset_native_state(state: &AppState) {
     state.control_down.store(false, Ordering::SeqCst);
     state.shift_down.store(false, Ordering::SeqCst);
     state.meta_down.store(false, Ordering::SeqCst);
+    #[cfg(target_os = "macos")]
+    {
+        *state.mac_history_trigger_key.lock() = None;
+    }
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -158,6 +179,11 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    if handle_macos_history_trigger(app, &state, &event) {
+        return None;
+    }
+
     match event.event_type {
         EventType::KeyPress(Key::Tab) if history_uses_tab(&state) && !modifier_pressed(&state) => {
             if !state.tab_down.swap(true, Ordering::SeqCst) {
@@ -181,6 +207,70 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
             None
         }
         _ => Some(event),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn handle_macos_history_trigger(app: &AppHandle, state: &AppState, event: &rdev::Event) -> bool {
+    use rdev::EventType;
+
+    let (shortcut, mode) = {
+        let settings = state.settings.read();
+        (
+            settings.shortcuts.history_selector.clone(),
+            settings.history.interaction_mode.clone(),
+        )
+    };
+
+    // Plain Tab keeps its tap-vs-hold replay path below. Every other macOS
+    // switcher binding is captured here so keyboard-layout characters such as §
+    // do not have to pass through muda's finite hotkey-key parser.
+    if shortcut.eq_ignore_ascii_case("Tab") || shortcut.trim().is_empty() {
+        return false;
+    }
+
+    match event.event_type {
+        EventType::KeyPress(key) if shortcut_matches(state, event, key, &shortcut) => {
+            let mut trigger = state.mac_history_trigger_key.lock();
+            if trigger.is_none() {
+                *trigger = Some(key);
+                drop(trigger);
+                if !state.selector.lock().active {
+                    if let Err(error) = overlays::begin(app, mode) {
+                        *state.mac_history_trigger_key.lock() = None;
+                        log::warn!("Could not open Clipboard Switcher from macOS native shortcut: {error}");
+                    }
+                }
+            }
+            true
+        }
+        EventType::KeyPress(key)
+            if state
+                .mac_history_trigger_key
+                .lock()
+                .as_ref()
+                .is_some_and(|trigger| *trigger == key) =>
+        {
+            // Consume key-repeat events while the trigger is held.
+            true
+        }
+        EventType::KeyRelease(key) => {
+            let matched = state
+                .mac_history_trigger_key
+                .lock()
+                .as_ref()
+                .is_some_and(|trigger| *trigger == key);
+            if !matched {
+                return false;
+            }
+
+            *state.mac_history_trigger_key.lock() = None;
+            if matches!(mode, InteractionMode::HoldRelease) && state.selector.lock().active {
+                let _ = selection::accept(app);
+            }
+            true
+        }
+        _ => false,
     }
 }
 
@@ -413,6 +503,19 @@ fn push_warning(app: &AppHandle, message: &str) {
     let mut warnings = state.startup_warnings.write();
     if !warnings.iter().any(|warning| warning == message) {
         warnings.push(message.to_string());
+        let _ = app.emit("clipboard://status-changed", ());
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn remove_warning(app: &AppHandle, message: &str) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let mut warnings = state.startup_warnings.write();
+    let before = warnings.len();
+    warnings.retain(|warning| warning != message);
+    if warnings.len() != before {
         let _ = app.emit("clipboard://status-changed", ());
     }
 }

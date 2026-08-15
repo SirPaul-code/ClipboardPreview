@@ -104,13 +104,6 @@ pub fn run() {
                 );
             }
 
-            if cfg!(target_os = "macos") && !permissions::accessibility_granted() {
-                push_startup_warning(
-                    app.handle(),
-                    "Tab hold and global wheel selection need macOS Accessibility permission. Sticky mode and modifier-based shortcuts remain available.",
-                );
-            }
-
             if let Err(error) = shortcuts::register_all(app.handle()) {
                 log::error!("Global shortcut registration failed: {error}");
                 push_startup_warning(

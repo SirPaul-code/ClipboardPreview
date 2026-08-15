@@ -113,6 +113,11 @@ jobs:
             Clipboard Preview official community release.
 
             Automatic updater artifacts are cryptographically signed by the Clipboard Preview updater key. Windows binaries are not Authenticode-signed and macOS community builds use ad-hoc signing unless platform signing credentials are configured separately.
+
+            macOS manual download guide:
+            - Apple Silicon (M1/M2/M3/M4): download the `darwin-aarch64.dmg` file.
+            - Intel Mac: download the `darwin-x64.dmg` file.
+            - The `.app.tar.gz` and `.sig` files are automatic-updater assets; normal users should use the `.dmg`.
           releaseDraft: true
           prerelease: false
           generateReleaseNotes: true
