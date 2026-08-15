@@ -107,7 +107,7 @@ pub fn run() {
             if cfg!(target_os = "macos") && !permissions::accessibility_granted() {
                 push_startup_warning(
                     app.handle(),
-                    "Tab hold and global wheel selection need macOS Accessibility permission. Sticky mode and modifier-based shortcuts remain available.",
+                    "Clipboard Switcher keyboard and wheel capture need macOS Accessibility permission. System Settings → Privacy & Security → Accessibility will open automatically; enable Clipboard Preview there.",
                 );
             }
 
