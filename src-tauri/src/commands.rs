@@ -18,7 +18,13 @@ use crate::{
 
 const IMAGE_PREVIEW_MAX_WIDTH: u32 = 1280;
 const IMAGE_PREVIEW_MAX_HEIGHT: u32 = 900;
-const ALLOWED_EXTERNAL_PREFIX: &str = "https://github.com/SirPaul-code";
+const EXTERNAL_URLS: [&str; 5] = [
+    "https://github.com/SirPaul-code",
+    "https://github.com/SirPaul-code/ClipboardPreview",
+    "https://github.com/SirPaul-code/ClipboardPreview/releases",
+    "https://github.com/SirPaul-code/ClipboardPreview/issues",
+    "https://github.com/SirPaul-code/ClipboardPreview/blob/main/LICENSE",
+];
 
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> AppSettings {
@@ -86,8 +92,13 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSetting
     {
         return Err("Switcher navigation supports letters, numbers, arrows, Home/End, PageUp/PageDown, Enter, Space, Escape, Backspace, Delete, Insert and F1-F12, with optional modifiers.".into());
     }
-    if cfg!(target_os = "linux") && next.shortcuts.history_selector.eq_ignore_ascii_case("Tab") {
-        return Err("Plain Tab hold is not available on Linux. Choose a modifier-based switcher shortcut such as Ctrl+Alt+J.".into());
+    if cfg!(target_os = "linux") {
+        if next.shortcuts.history_selector.eq_ignore_ascii_case("Tab") {
+            return Err("Plain Tab hold is not available on Linux. Choose a modifier-based switcher shortcut such as Ctrl+Alt+J.".into());
+        }
+        if matches!(next.history.interaction_mode, InteractionMode::HoldRelease) {
+            return Err("Hold/release mode is not available on Linux. Use sticky mode so wheel and keyboard navigation remain reliable.".into());
+        }
     }
 
     let state = app.state::<AppState>();
@@ -212,7 +223,7 @@ pub fn platform_status(app: AppHandle) -> PlatformStatus {
         os: std::env::consts::OS.into(),
         accessibility_required: mac,
         accessibility_granted,
-        hold_release_available: windows || linux || (mac && accessibility_granted),
+        hold_release_available: windows || (mac && accessibility_granted),
         global_wheel_available: windows || (mac && accessibility_granted),
         tab_hold_available: windows || (mac && accessibility_granted),
         image_history_available: windows || mac || linux,
@@ -260,8 +271,8 @@ pub fn open_diagnostics_folder() -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), String> {
-    if !url.starts_with(ALLOWED_EXTERNAL_PREFIX) {
-        return Err("Blocked external URL outside the Clipboard Preview GitHub namespace".into());
+    if !EXTERNAL_URLS.contains(&url.as_str()) {
+        return Err("Blocked external URL".into());
     }
 
     #[cfg(target_os = "windows")]
