@@ -1,3 +1,6 @@
+use tauri::AppHandle;
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::{
     panic::{catch_unwind, AssertUnwindSafe},
     sync::atomic::Ordering,
@@ -5,8 +8,10 @@ use std::{
     time::Duration,
 };
 
-use tauri::{AppHandle, Emitter, Manager};
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use tauri::{Emitter, Manager};
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use crate::{
     models::{InteractionMode, TAB_HOLD_DELAY_MS},
     overlays, permissions, selection,
@@ -283,6 +288,7 @@ fn update_modifier_state(state: &AppState, event_type: &rdev::EventType) {
     }
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn modifier_pressed(state: &AppState) -> bool {
     state.alt_down.load(Ordering::SeqCst)
         || state.control_down.load(Ordering::SeqCst)
@@ -343,6 +349,7 @@ fn replay_tab(app: AppHandle) {
     });
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn history_uses_tab(state: &AppState) -> bool {
     state
         .settings
@@ -352,6 +359,7 @@ fn history_uses_tab(state: &AppState) -> bool {
         .eq_ignore_ascii_case("Tab")
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn push_warning(app: &AppHandle, message: &str) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
