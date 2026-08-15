@@ -1,0 +1,126 @@
+.mac-permission-panel {
+  margin: 0 0 28px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.mac-permission-summary,
+.mac-permission-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 2px;
+}
+
+.mac-permission-summary {
+  border-left: 3px solid var(--warning-text);
+  padding-left: 11px;
+  background: var(--warning-bg);
+}
+
+.mac-permission-panel.ready .mac-permission-summary {
+  border-left-color: #356c48;
+  background: #edf4ee;
+}
+
+.theme-dark .mac-permission-panel.ready .mac-permission-summary,
+.theme-system .mac-permission-panel.ready .mac-permission-summary {
+  border-left-color: #8cc79d;
+  background: #18241b;
+}
+
+.mac-permission-row {
+  border-top: 1px solid var(--line);
+}
+
+.mac-permission-summary > div,
+.mac-permission-row > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mac-permission-summary strong,
+.mac-permission-row strong {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.mac-permission-summary span:not(.permission-state),
+.mac-permission-row span:not(.permission-state) {
+  max-width: 570px;
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+.mac-permission-actions {
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px !important;
+  flex: 0 0 auto;
+}
+
+.permission-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  padding: 3px 7px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font: 700 8px/1 "SFMono-Regular", Consolas, monospace;
+  letter-spacing: .04em;
+}
+
+.permission-state.ok {
+  color: #356c48;
+}
+
+.permission-state.pending {
+  color: var(--warning-text);
+}
+
+.permission-state.optional {
+  color: var(--muted);
+}
+
+.theme-dark .permission-state.ok,
+.theme-system .permission-state.ok {
+  color: #8cc79d;
+}
+
+.mac-permission-actions button {
+  min-height: 29px;
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--muted-strong);
+  background: var(--surface);
+  font-size: 9.5px;
+  cursor: pointer;
+}
+
+.mac-permission-actions button:hover {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.first-card .mac-permission-panel {
+  margin-top: 18px;
+  text-align: left;
+}
+
+@media (max-width: 680px) {
+  .mac-permission-summary,
+  .mac-permission-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mac-permission-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
