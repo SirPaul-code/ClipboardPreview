@@ -281,7 +281,7 @@ pub fn platform_status(app: AppHandle) -> PlatformStatus {
 pub fn open_macos_accessibility_settings() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        return permissions::open_accessibility_settings();
+        permissions::open_accessibility_settings()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -293,7 +293,7 @@ pub fn open_macos_accessibility_settings() -> Result<(), String> {
 pub fn open_macos_input_monitoring_settings() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        return permissions::open_input_monitoring_settings();
+        permissions::open_input_monitoring_settings()
     }
     #[cfg(not(target_os = "macos"))]
     {
