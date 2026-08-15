@@ -22,8 +22,3 @@ pub fn open_accessibility_settings() -> Result<(), String> {
         .map_err(|error| format!("Could not open macOS Accessibility settings: {error}"))?;
     Ok(())
 }
-
-#[cfg(not(target_os = "macos"))]
-pub fn open_accessibility_settings() -> Result<(), String> {
-    Ok(())
-}
