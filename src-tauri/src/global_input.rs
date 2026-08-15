@@ -14,9 +14,12 @@ use tauri::{Emitter, Manager};
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use crate::{
     models::{InteractionMode, TAB_HOLD_DELAY_MS},
-    overlays, permissions, selection,
+    overlays, selection,
     state::AppState,
 };
+
+#[cfg(target_os = "macos")]
+use crate::permissions;
 
 #[cfg(target_os = "macos")]
 const MAC_ACCESSIBILITY_WARNING: &str = "Clipboard Switcher keyboard and wheel capture need macOS Accessibility permission. Enable Clipboard Preview in System Settings → Privacy & Security → Accessibility; capture activates automatically after permission is granted.";
@@ -245,7 +248,8 @@ fn handle_macos_history_trigger(app: &AppHandle, state: &AppState, event: &rdev:
             if state
                 .mac_history_trigger_key
                 .lock()
-                .is_some_and(|trigger| trigger == key) =>
+                .as_ref()
+                .is_some_and(|trigger| *trigger == key) =>
         {
             // Consume key-repeat events while the trigger is held.
             true
@@ -254,7 +258,8 @@ fn handle_macos_history_trigger(app: &AppHandle, state: &AppState, event: &rdev:
             let matched = state
                 .mac_history_trigger_key
                 .lock()
-                .is_some_and(|trigger| trigger == key);
+                .as_ref()
+                .is_some_and(|trigger| *trigger == key);
             if !matched {
                 return false;
             }
@@ -502,7 +507,7 @@ fn push_warning(app: &AppHandle, message: &str) {
     }
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(target_os = "macos")]
 fn remove_warning(app: &AppHandle, message: &str) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
