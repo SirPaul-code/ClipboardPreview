@@ -1,5 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { AppSettings, ClipboardItem, ImagePreviewPayload, PlatformStatus } from '../types';
+import type {
+  AppSettings,
+  ClipboardItem,
+  ImagePreviewPayload,
+  PlatformStatus,
+  UpdateStatus
+} from '../types';
 
 export const backend = {
   settings: () => invoke<AppSettings>('get_settings'),
@@ -9,6 +15,9 @@ export const backend = {
   diagnostics: () => invoke<string>('diagnostics_report'),
   clearDiagnostics: () => invoke<void>('clear_diagnostics'),
   openDiagnosticsFolder: () => invoke<void>('open_diagnostics_folder'),
+  openExternal: (url: string) => invoke<void>('open_external', { url }),
+  checkForUpdates: () => invoke<UpdateStatus>('check_for_updates'),
+  installUpdate: () => invoke<void>('install_update'),
   saveSettings: (settings: AppSettings) => invoke<AppSettings>('save_settings', { settings }),
   clearHistory: () => invoke<void>('clear_history'),
   selectItem: (id: string) => invoke<void>('select_history_item', { id }),
