@@ -55,6 +55,8 @@ export interface AppSettings {
   shortcuts: {
     quickPreview: string;
     historySelector: string;
+    previousItem: string;
+    nextItem: string;
     openSettings: string;
     pauseMonitoring: string;
   };
@@ -107,6 +109,8 @@ export interface HistoryPayload {
   appearance: AppSettings['appearance'];
   totalItems: number;
   shortcut: string;
+  previousShortcut: string;
+  nextShortcut: string;
   imagePreviewDelayMs: number;
   largePreviewPanel: boolean;
 }
