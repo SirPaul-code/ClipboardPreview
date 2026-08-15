@@ -15,10 +15,17 @@ import {
   Trash2
 } from 'lucide-react';
 import { backend } from '../lib/tauri';
-import type { AppSettings, ClipboardItem, PlatformStatus } from '../types';
+import type {
+  AppSettings,
+  ClipboardItem,
+  PlatformStatus,
+  UpdateProgress,
+  UpdateStatus
+} from '../types';
 import { ClipboardCard } from '../components/ClipboardCard';
 import { NumberField, Row, Section, Toggle } from '../components/SettingsControls';
 import { ShortcutRecorder } from '../components/ShortcutRecorder';
+import { SwitcherAppearanceEditor } from '../components/SwitcherAppearanceEditor';
 
 type Tab = 'general' | 'switcher' | 'history' | 'appearance' | 'advanced' | 'about';
 const tabs: Array<[Tab, string, typeof Clipboard]> = [
@@ -38,6 +45,9 @@ export function SettingsApp() {
   const [message, setMessage] = useState('');
   const [loadError, setLoadError] = useState('');
   const [diagnostics, setDiagnostics] = useState('');
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -63,7 +73,9 @@ export function SettingsApp() {
     const offs: Array<() => void> = [];
     Promise.all([
       listen('clipboard://history-changed', () => void backend.history().then(setHistory)),
-      listen('clipboard://status-changed', () => void backend.status().then(setStatus))
+      listen('clipboard://status-changed', () => void backend.status().then(setStatus)),
+      listen<UpdateStatus>('clipboard://update-available', (event) => setUpdateStatus(event.payload)),
+      listen<UpdateProgress>('clipboard://update-progress', (event) => setUpdateProgress(event.payload))
     ]).then((listeners) => offs.push(...listeners));
     return () => offs.forEach((off) => off());
   }, []);
@@ -94,6 +106,32 @@ export function SettingsApp() {
     setDiagnostics(await backend.diagnostics());
   }, []);
 
+  const checkUpdates = useCallback(async () => {
+    setUpdateChecking(true);
+    try {
+      const next = await backend.checkForUpdates();
+      setUpdateStatus(next);
+      setMessage(next.available ? `Update ${next.version} available` : next.enabled ? 'Up to date' : 'Updates disabled for source build');
+      window.setTimeout(() => setMessage(''), 1800);
+    } catch (error) {
+      setMessage(`Update check failed: ${String(error)}`);
+    } finally {
+      setUpdateChecking(false);
+    }
+  }, []);
+
+  const installUpdate = useCallback(async () => {
+    setUpdateProgress({ downloaded: 0, total: null });
+    setMessage('Downloading update…');
+    try {
+      await backend.installUpdate();
+      setMessage('Update installed');
+    } catch (error) {
+      setMessage(`Update failed: ${String(error)}`);
+      setUpdateProgress(null);
+    }
+  }, []);
+
   if (!settings) {
     return (
       <div className="loading">
@@ -118,13 +156,17 @@ export function SettingsApp() {
 
   const performanceThreshold = status?.historyPerformanceWarningItems ?? 150;
   const memoryBudget = status?.historyMemoryBudgetMib ?? 192;
+  const tabHold = Boolean(status?.tabHoldAvailable && settings.shortcuts.historySelector.toLowerCase() === 'tab');
+  const progressPercent = updateProgress?.total
+    ? Math.min(100, Math.round((updateProgress.downloaded / updateProgress.total) * 100))
+    : null;
 
   return (
     <div className={`settings-app theme-${settings.appearance.theme}`}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark"><Clipboard size={17} /></div>
-          <div><strong>Clipboard Preview</strong><span>v{status?.version ?? '1.2.0'}</span></div>
+          <div><strong>Clipboard Preview</strong><span>v{status?.version ?? '1.3.0'}</span></div>
         </div>
         <nav>
           {tabs.map(([id, label, Icon]) => (
@@ -142,10 +184,21 @@ export function SettingsApp() {
             <span className="eyebrow">Clipboard Preview</span>
             <h1>{tabs.find(([id]) => id === tab)?.[1]}</h1>
           </div>
-          <span className={message && message !== 'Saved' ? 'save-state error' : 'save-state'}>{message}</span>
+          <span className={message && message !== 'Saved' && message !== 'Up to date' ? 'save-state error' : 'save-state'}>{message}</span>
         </header>
 
         <div className="page-body">
+          {updateStatus?.available ? (
+            <div className="update-banner">
+              <div><strong>Clipboard Preview {updateStatus.version} is available</strong><span>{updateStatus.body || 'A newer signed release is ready to install.'}</span></div>
+              <div className="update-actions">
+                {updateProgress ? <div className="update-progress" title={progressPercent === null ? 'Downloading update' : `${progressPercent}%`}><i style={{ width: `${progressPercent ?? 12}%` }} /></div> : null}
+                <button className="primary" onClick={() => void installUpdate()} disabled={Boolean(updateProgress)}>Update now</button>
+                <button onClick={() => setUpdateStatus(null)}>Later</button>
+              </div>
+            </div>
+          ) : null}
+
           {status?.lastCrashAvailable ? (
             <div className="diagnostic-banner">
               <div><strong>Previous crash captured</strong><span>The next launch stayed alive and a local diagnostic report is available.</span></div>
@@ -162,11 +215,14 @@ export function SettingsApp() {
               <section className="switcher-hero">
                 <div className="hero-copy-block">
                   <span className="eyebrow">Default gesture</span>
-                  <h2>Hold <kbd>Tab</kbd>. Scroll. Release.</h2>
-                  <p>A quick tap still behaves like a normal Tab. Holding it opens your clipboard switcher without taking over your workflow.</p>
+                  {tabHold ? (
+                    <><h2>Hold <kbd>Tab</kbd>. Scroll. Release.</h2><p>A quick tap still behaves like a normal Tab. Holding it opens your clipboard switcher without taking over your workflow.</p></>
+                  ) : (
+                    <><h2>Press <kbd>{settings.shortcuts.historySelector}</kbd>. Browse. Select.</h2><p>This platform uses the reliable global-shortcut path. Scroll or use arrow keys, then press Enter to restore the selected item.</p></>
+                  )}
                 </div>
                 <div className="hero-steps" aria-label="Clipboard switcher steps">
-                  <span>Hold</span><i>→</i><span>Scroll</span><i>→</i><span>Release</span>
+                  <span>{tabHold ? 'Hold' : 'Open'}</span><i>→</i><span>Scroll</span><i>→</i><span>{tabHold ? 'Release' : 'Select'}</span>
                 </div>
               </section>
 
@@ -188,8 +244,8 @@ export function SettingsApp() {
 
           {tab === 'switcher' && (
             <>
-              <Section title="Shortcuts" description="Tab is handled as tap-vs-hold so short taps continue to work normally.">
-                <Row label="Clipboard Switcher" hint="Default: Tab"><ShortcutRecorder value={settings.shortcuts.historySelector} onChange={(value) => patch('shortcuts', { ...settings.shortcuts, historySelector: value })} /></Row>
+              <Section title="Shortcuts" description={status?.tabHoldAvailable ? 'Tab is handled as tap-vs-hold so short taps continue to work normally.' : 'Use a modifier-based shortcut on this platform. Plain Tab hold is intentionally unavailable.'}>
+                <Row label="Clipboard Switcher" hint={status?.tabHoldAvailable ? 'Default: Tab' : 'Default: Ctrl+Alt+J'}><ShortcutRecorder value={settings.shortcuts.historySelector} onChange={(value) => patch('shortcuts', { ...settings.shortcuts, historySelector: value })} /></Row>
                 <Row label="Quick Preview"><ShortcutRecorder value={settings.shortcuts.quickPreview} onChange={(value) => patch('shortcuts', { ...settings.shortcuts, quickPreview: value })} /></Row>
                 <Row label="Open Settings"><ShortcutRecorder value={settings.shortcuts.openSettings} onChange={(value) => patch('shortcuts', { ...settings.shortcuts, openSettings: value })} /></Row>
                 <Row label="Pause / Resume"><ShortcutRecorder value={settings.shortcuts.pauseMonitoring} onChange={(value) => patch('shortcuts', { ...settings.shortcuts, pauseMonitoring: value })} /></Row>
@@ -236,13 +292,18 @@ export function SettingsApp() {
           )}
 
           {tab === 'appearance' && (
-            <Section title="Appearance">
-              <Row label="Theme"><select value={settings.appearance.theme} onChange={(event) => patch('appearance', { ...settings.appearance, theme: event.target.value as AppSettings['appearance']['theme'] })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></Row>
-              <Row label="Overlay opacity"><NumberField value={Math.round(settings.appearance.overlayOpacity * 100)} min={72} max={100} suffix="%" onChange={(value) => patch('appearance', { ...settings.appearance, overlayOpacity: value / 100 })} /></Row>
-              <Row label="Corner radius"><NumberField value={settings.appearance.cornerRadius} min={6} max={24} suffix="px" onChange={(value) => patch('appearance', { ...settings.appearance, cornerRadius: value })} /></Row>
-              <Row label="Compact spacing"><Toggle checked={settings.appearance.compactSpacing} onChange={(value) => patch('appearance', { ...settings.appearance, compactSpacing: value })} /></Row>
-              <Row label="Reduced motion"><Toggle checked={settings.appearance.reducedMotion} onChange={(value) => patch('appearance', { ...settings.appearance, reducedMotion: value })} /></Row>
-            </Section>
+            <>
+              <Section title="Application appearance">
+                <Row label="Theme"><select value={settings.appearance.theme} onChange={(event) => patch('appearance', { ...settings.appearance, theme: event.target.value as AppSettings['appearance']['theme'] })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></Row>
+                <Row label="Overlay opacity"><NumberField value={Math.round(settings.appearance.overlayOpacity * 100)} min={72} max={100} suffix="%" onChange={(value) => patch('appearance', { ...settings.appearance, overlayOpacity: value / 100 })} /></Row>
+                <Row label="Corner radius"><NumberField value={settings.appearance.cornerRadius} min={6} max={24} suffix="px" onChange={(value) => patch('appearance', { ...settings.appearance, cornerRadius: value })} /></Row>
+                <Row label="Compact spacing"><Toggle checked={settings.appearance.compactSpacing} onChange={(value) => patch('appearance', { ...settings.appearance, compactSpacing: value })} /></Row>
+                <Row label="Reduced motion"><Toggle checked={settings.appearance.reducedMotion} onChange={(value) => patch('appearance', { ...settings.appearance, reducedMotion: value })} /></Row>
+              </Section>
+              <Section title="Clipboard Switcher" description="This is a live preview of the real switcher. Tune every text layer, the row geometry, thumbnails, and the restrained surface colors here.">
+                <SwitcherAppearanceEditor appearance={settings.appearance} onChange={(appearance) => patch('appearance', appearance)} />
+              </Section>
+            </>
           )}
 
           {tab === 'advanced' && (
@@ -274,11 +335,31 @@ export function SettingsApp() {
               <div className="about">
                 <div className="about-icon"><Clipboard size={25} /></div>
                 <h3>Clipboard Preview</h3>
-                <p className="version">Version {status?.version ?? '1.2.0'}</p>
-                <p>A lightweight text and image clipboard switcher for Windows and macOS.</p>
-                <p>Made by <a href="https://github.com/SirPaul-code"><strong>Pavol Duplinsky</strong></a> · <a href="https://github.com/SirPaul-code">@SirPaul-code</a></p>
+                <p className="version">Version {status?.version ?? '1.3.0'}</p>
+                <p>A lightweight text and image clipboard switcher for Windows, macOS, and Linux.</p>
+                <p>Made by <a href="https://github.com/SirPaul-code" onClick={(event) => { event.preventDefault(); void backend.openExternal('https://github.com/SirPaul-code'); }}><strong>Pavol Duplinsky</strong></a> · <a href="https://github.com/SirPaul-code" onClick={(event) => { event.preventDefault(); void backend.openExternal('https://github.com/SirPaul-code'); }}>@SirPaul-code</a></p>
                 <div className="privacy-note"><Shield size={18} /><div><strong>Local by default</strong><span>No telemetry, accounts, cloud sync, or remote clipboard API.</span></div></div>
-                <div className="about-links"><a href="https://github.com/SirPaul-code/ClipboardPreview">GitHub</a><a href="https://github.com/SirPaul-code/ClipboardPreview/releases">Releases</a><a href="https://github.com/SirPaul-code/ClipboardPreview/issues">Report an issue</a><a href="https://github.com/SirPaul-code/ClipboardPreview/blob/main/LICENSE">MIT License</a></div>
+
+                <div className="privacy-note">
+                  <Info size={18} />
+                  <div>
+                    <strong>{status?.officialBuild ? 'Official release build' : 'Source / development build'}</strong>
+                    <span className="update-status-copy">{status?.officialBuild ? (status.updatesEnabled ? 'Signed automatic update checks are enabled.' : 'Automatic updater is unavailable in this build.') : 'Automatic updates are intentionally disabled. Forks and local builds never require Clipboard Preview signing secrets.'}</span>
+                  </div>
+                </div>
+                {status?.officialBuild && status.updatesEnabled ? (
+                  <div className="action-row update-actions">
+                    <button onClick={() => void checkUpdates()} disabled={updateChecking}>{updateChecking ? 'Checking…' : 'Check for updates'}</button>
+                    {updateStatus?.available ? <button className="primary" onClick={() => void installUpdate()} disabled={Boolean(updateProgress)}>Update to {updateStatus.version}</button> : null}
+                  </div>
+                ) : null}
+
+                <div className="about-links">
+                  <a href="https://github.com/SirPaul-code/ClipboardPreview" onClick={(event) => { event.preventDefault(); void backend.openExternal('https://github.com/SirPaul-code/ClipboardPreview'); }}>GitHub</a>
+                  <a href="https://github.com/SirPaul-code/ClipboardPreview/releases" onClick={(event) => { event.preventDefault(); void backend.openExternal('https://github.com/SirPaul-code/ClipboardPreview/releases'); }}>Releases</a>
+                  <a href="https://github.com/SirPaul-code/ClipboardPreview/issues" onClick={(event) => { event.preventDefault(); void backend.openExternal('https://github.com/SirPaul-code/ClipboardPreview/issues'); }}>Report an issue</a>
+                  <a href="https://github.com/SirPaul-code/ClipboardPreview/blob/main/LICENSE" onClick={(event) => { event.preventDefault(); void backend.openExternal('https://github.com/SirPaul-code/ClipboardPreview/blob/main/LICENSE'); }}>MIT License</a>
+                </div>
               </div>
             </Section>
           )}
@@ -289,13 +370,14 @@ export function SettingsApp() {
 }
 
 function FirstRun({ settings, status, onDone }: { settings: AppSettings; status: PlatformStatus | null; onDone: () => void }) {
+  const tabHold = Boolean(status?.tabHoldAvailable && settings.shortcuts.historySelector.toLowerCase() === 'tab');
   return (
     <main className="first-run">
       <div className="first-card">
         <div className="hero-mark"><Clipboard size={27} /></div>
         <span className="eyebrow">Clipboard Preview</span>
-        <h1>Hold Tab. Pick anything.</h1>
-        <p className="hero-copy">Text and images stay local. Tap Tab normally, or hold it to open the switcher.</p>
+        <h1>{tabHold ? 'Hold Tab. Pick anything.' : 'Your clipboard, one shortcut away.'}</h1>
+        <p className="hero-copy">{tabHold ? 'Text and images stay local. Tap Tab normally, or hold it to open the switcher.' : `Text and images stay local. Use ${settings.shortcuts.historySelector} to open the switcher on this platform.`}</p>
         <div className="first-shortcuts">
           <div><span>Clipboard Switcher</span><kbd>{settings.shortcuts.historySelector}</kbd></div>
           <div><span>Quick Preview</span><kbd>{settings.shortcuts.quickPreview}</kbd></div>
