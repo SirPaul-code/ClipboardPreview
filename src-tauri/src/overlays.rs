@@ -163,6 +163,8 @@ fn history_payload(app: &AppHandle) -> HistoryOverlayPayload {
         appearance: settings.appearance,
         total_items,
         shortcut: settings.shortcuts.history_selector,
+        previous_shortcut: settings.shortcuts.previous_item,
+        next_shortcut: settings.shortcuts.next_item,
         image_preview_delay_ms: IMAGE_PREVIEW_DELAY_MS,
         large_preview_panel: settings.history.large_preview_panel,
     }
