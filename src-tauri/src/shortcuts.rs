@@ -35,7 +35,8 @@ fn action(app: &AppHandle, shortcut: &Shortcut, event_state: ShortcutState) {
 
     if quick_preview.as_ref() == Some(shortcut) && matches!(event_state, ShortcutState::Pressed) {
         let _ = overlays::show_quick(app);
-    } else if !settings.shortcuts.history_selector.eq_ignore_ascii_case("Tab")
+    } else if !cfg!(target_os = "macos")
+        && !settings.shortcuts.history_selector.eq_ignore_ascii_case("Tab")
         && history.as_ref() == Some(shortcut)
     {
         match event_state {
@@ -84,7 +85,12 @@ pub fn register_all(app: &AppHandle) -> Result<(), String> {
             settings.shortcuts.open_settings.as_str(),
             settings.shortcuts.pause_monitoring.as_str(),
         ];
-        if !settings.shortcuts.history_selector.eq_ignore_ascii_case("Tab") {
+        // macOS history selection uses the native rdev event tap for every binding,
+        // not muda's limited key parser. This allows layout-specific printable keys
+        // such as § while preserving hold/release semantics and wheel navigation.
+        if !cfg!(target_os = "macos")
+            && !settings.shortcuts.history_selector.eq_ignore_ascii_case("Tab")
+        {
             shortcuts.push(settings.shortcuts.history_selector.as_str());
         }
         shortcuts
