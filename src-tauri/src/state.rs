@@ -37,6 +37,8 @@ pub struct AppState {
     pub shift_down: AtomicBool,
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     pub meta_down: AtomicBool,
+    #[cfg(target_os = "macos")]
+    pub mac_history_trigger_key: Mutex<Option<rdev::Key>>,
 }
 
 impl AppState {
@@ -65,6 +67,8 @@ impl AppState {
             shift_down: AtomicBool::new(false),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             meta_down: AtomicBool::new(false),
+            #[cfg(target_os = "macos")]
+            mac_history_trigger_key: Mutex::new(None),
         }
     }
 }
