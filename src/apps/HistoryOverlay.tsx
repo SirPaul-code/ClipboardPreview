@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { Image as ImageIcon } from 'lucide-react';
 import { backend } from '../lib/tauri';
 import { formatClipboardTimestamp } from '../lib/clipboardFormat';
+import { shortcutMatchesEvent } from '../lib/shortcuts';
 import { switcherCssVariables } from '../lib/switcherStyle';
 import type { HistoryPayload, ImagePreviewPayload } from '../types';
 import { ClipboardCard } from '../components/ClipboardCard';
@@ -56,11 +57,13 @@ export function HistoryOverlay() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!payload || payload.interactionMode !== 'sticky') return;
-      if (['ArrowDown', 'j', 'J'].includes(event.key)) {
+      if (shortcutMatchesEvent(payload.nextShortcut, event)) {
         event.preventDefault();
+        event.stopPropagation();
         void backend.navigate(1);
-      } else if (['ArrowUp', 'k', 'K'].includes(event.key)) {
+      } else if (shortcutMatchesEvent(payload.previousShortcut, event)) {
         event.preventDefault();
+        event.stopPropagation();
         void backend.navigate(-1);
       } else if (event.key === 'Enter') {
         event.preventDefault();
@@ -85,6 +88,8 @@ export function HistoryOverlay() {
   }, [payload]);
 
   const shortcut = payload?.shortcut ?? 'Tab';
+  const previousShortcut = payload?.previousShortcut ?? 'ArrowUp';
+  const nextShortcut = payload?.nextShortcut ?? 'ArrowDown';
   const holdMode = payload?.interactionMode === 'hold_release';
   const largePreviewPanel = payload?.largePreviewPanel ?? true;
   const compactImagePopover =
@@ -204,8 +209,8 @@ export function HistoryOverlay() {
 
       <footer className="switcher-footer">
         {holdMode
-          ? `Hold ${shortcut} · scroll · release`
-          : '↑ ↓ / scroll · Enter select · Esc cancel'}
+          ? `Hold ${shortcut} · wheel / ${previousShortcut} ${nextShortcut} · release`
+          : `${previousShortcut} ${nextShortcut} / scroll · Enter select · Esc cancel`}
       </footer>
     </main>
   );
