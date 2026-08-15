@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { Image as ImageIcon } from 'lucide-react';
 import { backend } from '../lib/tauri';
+import { formatClipboardTimestamp } from '../lib/clipboardFormat';
+import { switcherCssVariables } from '../lib/switcherStyle';
 import type { HistoryPayload, ImagePreviewPayload } from '../types';
 import { ClipboardCard } from '../components/ClipboardCard';
 
@@ -88,18 +89,12 @@ export function HistoryOverlay() {
   const largePreviewPanel = payload?.largePreviewPanel ?? true;
   const compactImagePopover =
     !largePreviewPanel && selected?.type === 'image' && (imageLoading || imagePreview);
+  const selectedTimestamp = selected ? formatClipboardTimestamp(selected.createdAt) : '';
 
   return (
     <main
       className={`overlay-shell switcher ${largePreviewPanel ? 'switcher-split' : 'switcher-compact'}`}
-      style={
-        payload
-          ? ({
-              '--overlay-opacity': payload.appearance.overlayOpacity,
-              '--overlay-radius': `${payload.appearance.cornerRadius}px`
-            } as CSSProperties)
-          : undefined
-      }
+      style={payload ? switcherCssVariables(payload.appearance) : undefined}
     >
       <header className="switcher-header">
         <div>
@@ -155,12 +150,10 @@ export function HistoryOverlay() {
                   )}
                 </div>
                 <div className="detail-caption">
-                  <strong>
-                    {selected.metadata.width}×{selected.metadata.height}
-                  </strong>
+                  <strong>{selectedTimestamp}</strong>
                   <span>
                     {imagePreview
-                      ? 'Preview'
+                      ? 'Image preview'
                       : imageLoading
                         ? 'Loading…'
                         : 'Pause to preview'}
@@ -169,7 +162,7 @@ export function HistoryOverlay() {
               </div>
             ) : (
               <div className="text-detail">
-                <div className="detail-kind">{selected.type}</div>
+                <div className="detail-kind">{selected.type} · {selectedTimestamp}</div>
                 <div className={`detail-text ${selected.type === 'code' ? 'mono' : ''}`}>
                   {selected.content || selected.preview || 'Empty text'}
                 </div>
@@ -202,7 +195,7 @@ export function HistoryOverlay() {
               )}
             </div>
             <div className="image-preview-popover-meta">
-              <strong>{selected.metadata.width}×{selected.metadata.height}</strong>
+              <strong>{selectedTimestamp}</strong>
               <span>{imagePreview ? 'Image preview' : 'Loading…'}</span>
             </div>
           </aside>
