@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { AppSettings } from '../types';
 
-export type SwitcherCssVariables = CSSProperties & Record<`--sw-${string}`, string | number>;
+export type SwitcherCssVariables = CSSProperties & Record<`--${string}`, string | number>;
 
 export function switcherCssVariables(appearance: AppSettings['appearance']): SwitcherCssVariables {
   const style = appearance.switcher;
