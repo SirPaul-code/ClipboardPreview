@@ -6,7 +6,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::{
-    clipboard, diagnostics,
+    clipboard, diagnostics, global_input,
     models::{
         AppSettings, ImagePreviewPayload, InteractionMode, PlatformStatus,
         HISTORY_MEMORY_BUDGET_MIB, HISTORY_PERF_WARNING_ITEMS,
@@ -62,6 +62,8 @@ fn unique_shortcuts(settings: &AppSettings) -> bool {
     let shortcuts = [
         &settings.shortcuts.quick_preview,
         &settings.shortcuts.history_selector,
+        &settings.shortcuts.previous_item,
+        &settings.shortcuts.next_item,
         &settings.shortcuts.open_settings,
         &settings.shortcuts.pause_monitoring,
     ];
@@ -77,7 +79,12 @@ fn unique_shortcuts(settings: &AppSettings) -> bool {
 pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
     let next = settings.normalized();
     if !unique_shortcuts(&next) {
-        return Err("Each action needs a unique shortcut".into());
+        return Err("Each shortcut action needs a unique key binding".into());
+    }
+    if !global_input::navigation_shortcut_supported(&next.shortcuts.previous_item)
+        || !global_input::navigation_shortcut_supported(&next.shortcuts.next_item)
+    {
+        return Err("Switcher navigation supports letters, numbers, arrows, Home/End, PageUp/PageDown, Enter, Space, Escape, Backspace, Delete, Insert and F1-F12, with optional modifiers.".into());
     }
     if cfg!(target_os = "linux") && next.shortcuts.history_selector.eq_ignore_ascii_case("Tab") {
         return Err("Plain Tab hold is not available on Linux. Choose a modifier-based switcher shortcut such as Ctrl+Alt+J.".into());
