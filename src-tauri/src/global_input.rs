@@ -69,7 +69,7 @@ pub fn start(app: AppHandle) {
     thread::spawn(move || {
         #[cfg(target_os = "macos")]
         {
-            if !permissions::accessibility_granted() {
+            if !permissions::native_input_permissions_granted() {
                 push_warning(&app, MAC_NATIVE_INPUT_WARNING);
                 if let Err(error) = permissions::wait_for_native_input_permissions() {
                     log::warn!("Could not complete macOS native input permission flow: {error}");
