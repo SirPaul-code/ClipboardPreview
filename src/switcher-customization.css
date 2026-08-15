@@ -213,6 +213,17 @@
 
 .sw-number-control input {
   width: 64px;
+  min-height: 26px;
+  padding: 3px 6px;
+  border: 1px solid var(--line-strong, #bfc1b9);
+  border-radius: 3px;
+  outline: 0;
+  color: var(--text, #171815);
+  background: var(--surface, #fafaf8);
+}
+
+.sw-number-control input:focus {
+  border-color: var(--text, #171815);
 }
 
 .sw-number-control span {
