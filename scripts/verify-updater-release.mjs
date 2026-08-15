@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-const [manifestPath, releasePath] = process.argv.slice(2);
+const [manifestPath, releasePath, explicitTag] = process.argv.slice(2);
 
 function fail(message) {
   console.error(`Updater release verification failed: ${message}`);
@@ -8,17 +8,19 @@ function fail(message) {
 }
 
 if (!manifestPath || !releasePath) {
-  fail('usage: node scripts/verify-updater-release.mjs <latest.json> <release.json>');
+  fail('usage: node scripts/verify-updater-release.mjs <latest.json> <release.json> [vX.Y.Z]');
 }
 
-const tag = process.env.GITHUB_REF_NAME;
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+const release = JSON.parse(fs.readFileSync(releasePath, 'utf8'));
+const refTag = process.env.GITHUB_REF_NAME;
+const tag = explicitTag ?? (/^v\d+\.\d+\.\d+$/.test(refTag ?? '') ? refTag : release.tag_name);
+
 if (!tag || !/^v\d+\.\d+\.\d+$/.test(tag)) {
   fail(`expected a vX.Y.Z release tag, got ${tag ?? '<unset>'}`);
 }
 
 const expectedVersion = tag.slice(1);
-const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-const release = JSON.parse(fs.readFileSync(releasePath, 'utf8'));
 
 if (release.tag_name !== tag) {
   fail(`draft release tag mismatch: expected ${tag}, got ${release.tag_name ?? '<missing>'}`);
@@ -74,8 +76,8 @@ const requiredAssets = [
   ['Windows MSI installer', new RegExp(`^ClipboardPreview-${version}-windows-x64\\.msi$`, 'i')],
   ['macOS Apple Silicon DMG', new RegExp(`^ClipboardPreview-${version}-darwin-aarch64\\.dmg$`, 'i')],
   ['macOS Intel DMG', new RegExp(`^ClipboardPreview-${version}-darwin-x64\\.dmg$`, 'i')],
-  ['Linux AppImage', new RegExp(`^ClipboardPreview-${version}-linux-x64\\.AppImage$`, 'i')],
-  ['Linux Debian package', new RegExp(`^ClipboardPreview-${version}-linux-x64\\.deb$`, 'i')],
+  ['Linux AppImage', new RegExp(`^ClipboardPreview-${version}-linux-(?:x64|amd64)\\.AppImage$`, 'i')],
+  ['Linux Debian package', new RegExp(`^ClipboardPreview-${version}-linux-(?:x64|amd64)\\.deb$`, 'i')],
   ['updater manifest', /^latest\.json$/]
 ];
 
