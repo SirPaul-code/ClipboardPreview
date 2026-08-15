@@ -11,6 +11,7 @@ mod settings_store;
 mod shortcuts;
 mod state;
 mod tray;
+mod updates;
 
 use history::ClipboardHistory;
 use state::AppState;
@@ -31,6 +32,15 @@ fn create_configured_windows(app: &mut tauri::App) {
     for config in configs {
         diagnostics::mark(&format!("creating webview window {}", config.label));
         let result = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)
+            .map(|builder| {
+                builder.on_navigation(|url| {
+                    url.scheme() == "tauri"
+                        || matches!(
+                            url.host_str(),
+                            Some("tauri.localhost" | "localhost" | "127.0.0.1")
+                        )
+                })
+            })
             .and_then(|builder| builder.build());
         if let Err(error) = result {
             let message = format!(
@@ -80,7 +90,6 @@ pub fn run() {
             }
             diagnostics::mark("AppState managed before any webview creation");
 
-            // Persist migrations (v1 defaults -> v2 Tab switcher defaults) without making startup fatal.
             if let Err(error) = settings_store::save_settings(app.handle(), &settings) {
                 push_startup_warning(
                     app.handle(),
@@ -122,12 +131,26 @@ pub fn run() {
                 );
             }
 
-            // Critical startup ordering invariant: state and native integrations are ready before
-            // any frontend is allowed to issue IPC commands.
+            if let Err(error) = updates::register_notifications(app.handle()) {
+                log::warn!("Native notifications unavailable: {error}");
+            }
+            if let Err(error) = updates::register_updater(app.handle()) {
+                log::error!("Updater initialization failed: {error}");
+                if updates::official_build() {
+                    push_startup_warning(
+                        app.handle(),
+                        format!("Automatic updates are unavailable: {error}"),
+                    );
+                }
+            }
+
+            // Critical startup ordering invariant: AppState and optional native integrations
+            // are initialized before any frontend can issue IPC commands.
             create_configured_windows(app);
 
             clipboard::start(app.handle().clone());
             global_input::start(app.handle().clone());
+            updates::schedule_background_check(app.handle().clone());
 
             let has_startup_warning = app
                 .state::<AppState>()
@@ -176,8 +199,11 @@ pub fn run() {
             commands::diagnostics_report,
             commands::clear_diagnostics,
             commands::open_diagnostics_folder,
+            commands::open_external,
             commands::complete_first_run,
             commands::reset_settings,
+            updates::check_for_updates,
+            updates::install_update,
             commands::quit_app
         ]);
 
