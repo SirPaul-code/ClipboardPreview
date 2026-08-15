@@ -1,5 +1,5 @@
 .switcher {
-  background: color-mix(in srgb, var(--sw-panel-bg, #151716) calc(var(--overlay-opacity, .97) * 100%), transparent);
+  background: var(--sw-panel-bg, #151716);
   border-color: var(--sw-border, #343834);
 }
 
@@ -38,7 +38,12 @@
 
 .switcher .clip-card.selected {
   background: var(--sw-selected-bg, #282c28);
-  border-color: var(--sw-selected-border, #d5dad2);
+  outline: 1px solid var(--sw-selected-border, #d5dad2);
+  outline-offset: -1px;
+}
+
+.switcher .clip-card.selected::before {
+  background: var(--sw-selected-border, #d5dad2);
 }
 
 .switcher .clip-kind {
