@@ -132,6 +132,10 @@ The preview there uses the same CSS-variable contract as the real overlay. You c
 
 Each text layer has its own **font size and color** control. Changes are visible in the preview immediately and are persisted through the normal settings model.
 
+<p align="center">
+  <img src="assets/ClipPrewCustomization.png" alt="Clipboard Preview demo" width="1100">
+</p> 
+
 ## Updates
 
 Official Clipboard Preview builds use Tauri's signed updater artifacts hosted on GitHub Releases.
