@@ -1,5 +1,14 @@
 {
+  "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
     "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk1QjJERDM0NTM5QjBEMDcKUldRSERadFROTjJ5bFp5Y0JYcjltWXFRWXRmbWtDclpFVER6WXVzcm50S2FDYllHMnJIaHVtc0gK",
+      "endpoints": [
+        "https://github.com/SirPaul-code/ClipboardPreview/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
