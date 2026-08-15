@@ -13,15 +13,16 @@ pub fn history_uses_native_capture(value: &str) -> bool {
     if value.trim().is_empty() {
         return false;
     }
-    if value.eq_ignore_ascii_case("Tab") {
+
+    // macOS needs one consistent path for hold/release semantics, plain Tab,
+    // modifier shortcuts and layout-specific printable keys such as §. The
+    // session CGEventTap owns the history selector there; muda remains responsible
+    // for the other application shortcuts.
+    if cfg!(target_os = "macos") {
         return true;
     }
 
-    // On macOS, keep ordinary parseable shortcuts on the OS global-hotkey path.
-    // Only layout-specific values that the plugin cannot parse (for example §)
-    // need the native event tap. This gives us a permission-independent fallback
-    // instead of making every macOS switcher shortcut depend on rdev.
-    cfg!(target_os = "macos") && parse(value).is_none()
+    value.eq_ignore_ascii_case("Tab")
 }
 
 fn action(app: &AppHandle, shortcut: &Shortcut, event_state: ShortcutState) {
@@ -128,8 +129,11 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_shortcut_stays_on_global_hotkey_path() {
-        assert!(!history_uses_native_capture("Ctrl+Alt+J"));
+    fn ordinary_shortcut_uses_native_capture_only_on_macos() {
+        assert_eq!(
+            history_uses_native_capture("Ctrl+Alt+J"),
+            cfg!(target_os = "macos")
+        );
     }
 
     #[cfg(target_os = "macos")]
