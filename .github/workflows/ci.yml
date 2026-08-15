@@ -52,6 +52,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
@@ -68,26 +69,87 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf \
-            libfuse2
+            libfuse2 \
+            xvfb \
+            xauth
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+
       - name: Install exactly committed frontend dependencies
         run: npm ci
+
       - name: Validate source-build invariants
         run: npm run check:version
+
       - name: Rust tests from committed lockfile
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
       - name: Strict Rust lint from committed lockfile
         run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
       - name: Build distributable bundle without release secrets
         env:
           APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
         run: npm run tauri build -- --bundles ${{ matrix.bundles }}
+
+      - name: Windows startup smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path "src-tauri\target\release\clipboard-preview.exe"
+          $process = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 8
+          $process.Refresh()
+          if ($process.HasExited) {
+            throw "Clipboard Preview exited during the Windows startup smoke test with code $($process.ExitCode)."
+          }
+          Stop-Process -Id $process.Id -Force
+
+      - name: Verify and smoke macOS app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="src-tauri/target/release/bundle/macos/Clipboard Preview.app"
+          BIN="src-tauri/target/release/clipboard-preview"
+          codesign --verify --deep --strict "$APP"
+          "$BIN" > /tmp/clipboard-preview-smoke.log 2>&1 &
+          PID=$!
+          sleep 8
+          if ! kill -0 "$PID" 2>/dev/null; then
+            wait "$PID" || CODE=$?
+            cat /tmp/clipboard-preview-smoke.log || true
+            echo "Clipboard Preview exited during macOS startup smoke with code ${CODE:-0}." >&2
+            exit 1
+          fi
+          kill "$PID" || true
+          wait "$PID" || true
+
+      - name: Linux startup smoke
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="src-tauri/target/release/clipboard-preview"
+          xvfb-run -a "$BIN" > /tmp/clipboard-preview-smoke.log 2>&1 &
+          PID=$!
+          sleep 8
+          if ! kill -0 "$PID" 2>/dev/null; then
+            wait "$PID" || CODE=$?
+            cat /tmp/clipboard-preview-smoke.log || true
+            echo "Clipboard Preview exited during Linux startup smoke with code ${CODE:-0}." >&2
+            exit 1
+          fi
+          kill "$PID" || true
+          wait "$PID" || true
+
       - name: Upload smoke-test bundles
         uses: actions/upload-artifact@v4
         with:
