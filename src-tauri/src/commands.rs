@@ -13,10 +13,12 @@ use crate::{
     },
     overlays, permissions, selection, settings_store, shortcuts,
     state::AppState,
+    updates,
 };
 
 const IMAGE_PREVIEW_MAX_WIDTH: u32 = 1280;
 const IMAGE_PREVIEW_MAX_HEIGHT: u32 = 900;
+const ALLOWED_EXTERNAL_PREFIX: &str = "https://github.com/SirPaul-code";
 
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> AppSettings {
@@ -76,6 +78,9 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSetting
     let next = settings.normalized();
     if !unique_shortcuts(&next) {
         return Err("Each action needs a unique shortcut".into());
+    }
+    if cfg!(target_os = "linux") && next.shortcuts.history_selector.eq_ignore_ascii_case("Tab") {
+        return Err("Plain Tab hold is not available on Linux. Choose a modifier-based switcher shortcut such as Ctrl+Alt+J.".into());
     }
 
     let state = app.state::<AppState>();
@@ -189,7 +194,9 @@ pub fn toggle_monitoring(app: AppHandle) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn platform_status(app: AppHandle) -> PlatformStatus {
+    let windows = cfg!(target_os = "windows");
     let mac = cfg!(target_os = "macos");
+    let linux = cfg!(target_os = "linux");
     let accessibility_granted = permissions::accessibility_granted();
     let state = app.state::<AppState>();
     let startup_warnings = state.startup_warnings.read().clone();
@@ -198,14 +205,16 @@ pub fn platform_status(app: AppHandle) -> PlatformStatus {
         os: std::env::consts::OS.into(),
         accessibility_required: mac,
         accessibility_granted,
-        hold_release_available: !mac || accessibility_granted,
-        global_wheel_available: !mac || accessibility_granted,
-        tab_hold_available: !mac || accessibility_granted,
-        image_history_available: cfg!(any(target_os = "windows", target_os = "macos")),
+        hold_release_available: windows || linux || (mac && accessibility_granted),
+        global_wheel_available: windows || (mac && accessibility_granted),
+        tab_hold_available: windows || (mac && accessibility_granted),
+        image_history_available: windows || mac || linux,
         history_memory_budget_mib: HISTORY_MEMORY_BUDGET_MIB,
         history_performance_warning_items: HISTORY_PERF_WARNING_ITEMS,
         last_crash_available: diagnostics::last_crash_available(),
         version: app.package_info().version.to_string(),
+        official_build: updates::official_build(),
+        updates_enabled: updates::ready(),
         startup_warnings,
     }
 }
@@ -240,6 +249,42 @@ pub fn open_diagnostics_folder() -> Result<(), String> {
         .spawn()
         .map_err(|error| format!("Could not open diagnostics folder: {error}"))?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    if !url.starts_with(ALLOWED_EXTERNAL_PREFIX) {
+        return Err("Blocked external URL outside the Clipboard Preview GitHub namespace".into());
+    }
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("rundll32");
+        command.arg("url.dll,FileProtocolHandler").arg(&url);
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(&url);
+        command
+    };
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(&url);
+        command
+    };
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    return Err("Opening external URLs is not supported on this platform".into());
+
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+    {
+        command
+            .spawn()
+            .map_err(|error| format!("Could not open system browser: {error}"))?;
+        Ok(())
+    }
 }
 
 #[tauri::command]
