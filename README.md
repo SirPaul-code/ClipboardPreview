@@ -16,11 +16,13 @@ Clipboard Preview is a lightweight local clipboard switcher for **Windows 10/11 
 
 ## The fast path
 
-The default v1.1 interaction is intentionally small:
+The default interaction is intentionally small:
 
 ```text
 copy several things → hold Tab → scroll → release → paste
 ```
+
+**No clicking is required.** Hold `Tab` to open the switcher, use the mouse wheel to scroll through recent clipboard items, and release `Tab` when the item you want is selected. That item is immediately restored to the system clipboard and is ready to paste. You can still click items if you prefer, or simply hold `Tab` for a moment to inspect your recent clipboard history without clicking anything.
 
 A **short Tab press is replayed to the foreground application**, so Tab keeps behaving normally in editors, browsers, forms, and other everyday desktop apps. Holding Tab for roughly 180 ms opens the Clipboard Switcher instead.
 
@@ -72,7 +74,7 @@ The default Tab hold gesture and global wheel interception require **Accessibili
 
 ## Clipboard formats
 
-v1.1 supports:
+Current releases support:
 
 - plain text;
 - URLs;
