@@ -1,4 +1,9 @@
-use std::{collections::HashSet, io::Cursor, process::Command};
+use std::{
+    collections::HashSet,
+    io::Cursor,
+    process::Command,
+    sync::atomic::Ordering,
+};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::ImageOutputFormat;
@@ -245,16 +250,28 @@ pub fn platform_status(app: AppHandle) -> PlatformStatus {
     let mac = cfg!(target_os = "macos");
     let linux = cfg!(target_os = "linux");
     let accessibility_granted = permissions::accessibility_granted();
+    let input_monitoring_granted = permissions::input_monitoring_granted();
     let state = app.state::<AppState>();
+    let native_input_ready = if windows || mac {
+        state.native_input_ready.load(Ordering::SeqCst)
+    } else {
+        false
+    };
     let startup_warnings = state.startup_warnings.read().clone();
 
     PlatformStatus {
         os: std::env::consts::OS.into(),
         accessibility_required: mac,
         accessibility_granted,
-        hold_release_available: windows || (mac && accessibility_granted),
-        global_wheel_available: windows || (mac && accessibility_granted),
-        tab_hold_available: windows || (mac && accessibility_granted),
+        // The active kCGSessionEventTap used by Clipboard Preview is governed by
+        // Accessibility. Input Monitoring is shown separately for transparency,
+        // but is not required by this capture implementation.
+        input_monitoring_required: false,
+        input_monitoring_granted,
+        native_input_ready,
+        hold_release_available: windows || (mac && native_input_ready),
+        global_wheel_available: windows || (mac && native_input_ready),
+        tab_hold_available: windows || (mac && native_input_ready),
         image_history_available: windows || mac || linux,
         history_memory_budget_mib: HISTORY_MEMORY_BUDGET_MIB,
         history_performance_warning_items: HISTORY_PERF_WARNING_ITEMS,
@@ -263,6 +280,30 @@ pub fn platform_status(app: AppHandle) -> PlatformStatus {
         official_build: updates::official_build(),
         updates_enabled: updates::ready(),
         startup_warnings,
+    }
+}
+
+#[tauri::command]
+pub fn open_macos_accessibility_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        return permissions::open_accessibility_settings();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("macOS Accessibility settings are only available on macOS".into())
+    }
+}
+
+#[tauri::command]
+pub fn open_macos_input_monitoring_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        return permissions::open_input_monitoring_settings();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("macOS Input Monitoring settings are only available on macOS".into())
     }
 }
 
