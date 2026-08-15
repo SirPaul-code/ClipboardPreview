@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub fn navigation_shortcut_supported(value: &str) -> bool {
-    let Some(key) = value.split('+').last() else {
+    let Some(key) = value.split('+').next_back() else {
         return false;
     };
     let key = key.trim();
@@ -121,10 +121,10 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
                     return None;
                 }
             }
-            EventType::KeyRelease(key) => {
-                if navigation_delta(&state, &event, key).is_some() {
-                    return None;
-                }
+            EventType::KeyRelease(key)
+                if navigation_delta(&state, &event, key).is_some() =>
+            {
+                return None;
             }
             _ => {}
         }
