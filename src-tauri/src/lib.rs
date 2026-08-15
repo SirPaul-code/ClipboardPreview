@@ -104,13 +104,6 @@ pub fn run() {
                 );
             }
 
-            if cfg!(target_os = "macos") && !permissions::accessibility_granted() {
-                push_startup_warning(
-                    app.handle(),
-                    "Clipboard Switcher keyboard and wheel capture need macOS Accessibility permission. System Settings → Privacy & Security → Accessibility will open automatically; enable Clipboard Preview there.",
-                );
-            }
-
             if let Err(error) = shortcuts::register_all(app.handle()) {
                 log::error!("Global shortcut registration failed: {error}");
                 push_startup_warning(
