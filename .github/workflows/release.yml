@@ -44,18 +44,20 @@ jobs:
       fail-fast: false
       # tauri-action merges each platform into one latest.json asset. Keep these
       # uploads serialized so concurrent jobs cannot overwrite each other's entry.
+      # Put Apple Silicon first so production signing/notarization credentials fail
+      # fast before spending time building the remaining release matrix.
       max-parallel: 1
       matrix:
         include:
-          - name: Windows x64
-            os: windows-latest
-            bundles: msi,nsis
           - name: macOS Apple Silicon
             os: macos-15
             bundles: app,dmg
           - name: macOS Intel
             os: macos-15-intel
             bundles: app,dmg
+          - name: Windows x64
+            os: windows-latest
+            bundles: msi,nsis
           - name: Linux x64
             os: ubuntu-22.04
             bundles: appimage,deb
