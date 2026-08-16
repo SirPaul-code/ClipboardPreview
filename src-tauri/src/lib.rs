@@ -3,6 +3,8 @@ mod commands;
 mod diagnostics;
 mod global_input;
 mod history;
+#[cfg(target_os = "macos")]
+mod macos_event_tap;
 mod models;
 mod overlays;
 mod permissions;
@@ -142,6 +144,15 @@ pub fn run() {
             create_configured_windows(app);
 
             clipboard::start(app.handle().clone());
+            #[cfg(target_os = "macos")]
+            {
+                // Keep the legacy rdev entry point referenced for shared state/reset code,
+                // but never execute its kCGHIDEventTap grab path on macOS. A normal
+                // desktop process uses the native session-level Core Graphics event tap.
+                let _legacy_global_input_start: fn(tauri::AppHandle) = global_input::start;
+                macos_event_tap::start(app.handle().clone());
+            }
+            #[cfg(not(target_os = "macos"))]
             global_input::start(app.handle().clone());
             updates::schedule_background_check(app.handle().clone());
 
