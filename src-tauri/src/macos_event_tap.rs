@@ -497,7 +497,10 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> bool {
     let mode = state.settings.read().history.interaction_mode.clone();
     match event.event_type {
         EventType::Wheel { delta_x, delta_y } => {
-            if delta_y != 0 && delta_y.abs() >= delta_x.abs() && mac_wheel_navigation_ready(&state, &event) {
+            if delta_y != 0
+                && delta_y.abs() >= delta_x.abs()
+                && mac_wheel_navigation_ready(&state, &event)
+            {
                 let _ = selection::navigate(app, if delta_y < 0 { 1 } else { -1 });
             }
             // Once visible, the switcher owns the scroll gesture globally so the
@@ -893,7 +896,8 @@ fn schedule_tab_hold(app: AppHandle) {
             if state.tab_hold_triggered.swap(true, Ordering::SeqCst) {
                 return;
             }
-            state.settings.read().history.interaction_mode.clone()
+            let mode = state.settings.read().history.interaction_mode.clone();
+            mode
         };
 
         if let Err(error) = overlays::begin(&app, mode) {
