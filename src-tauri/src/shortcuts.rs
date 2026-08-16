@@ -13,18 +13,15 @@ pub fn history_uses_native_capture(value: &str) -> bool {
     if value.trim().is_empty() {
         return false;
     }
-
-    // macOS switcher input is intentionally owned by one native event tap. That
-    // gives the active switcher exclusive keyboard/scroll priority, supports
-    // layout-specific printable keys, and keeps trigger + navigation handling in
-    // the same input stream. Accessibility permission is requested before the tap
-    // starts, so there is no longer a reason to split macOS history shortcuts
-    // between Tauri global-hotkey and rdev paths.
-    if cfg!(target_os = "macos") {
+    if value.eq_ignore_ascii_case("Tab") {
         return true;
     }
 
-    value.eq_ignore_ascii_case("Tab")
+    // On macOS, keep ordinary parseable shortcuts on the OS global-hotkey path.
+    // Only layout-specific values that the plugin cannot parse (for example §)
+    // need the native event tap. This preserves a permission-independent fallback
+    // instead of making every macOS switcher shortcut depend on rdev.
+    cfg!(target_os = "macos") && parse(value).is_none()
 }
 
 fn action(app: &AppHandle, shortcut: &Shortcut, event_state: ShortcutState) {
@@ -139,16 +136,15 @@ mod tests {
         assert!(history_uses_native_capture("Tab"));
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn ordinary_shortcut_uses_native_capture_on_macos() {
-        assert!(history_uses_native_capture("Cmd+K"));
+    fn ordinary_shortcut_stays_on_global_hotkey_path() {
+        assert!(!history_uses_native_capture("Ctrl+Alt+J"));
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "macos")]
     #[test]
-    fn ordinary_shortcut_stays_on_global_hotkey_path_off_macos() {
-        assert!(!history_uses_native_capture("Ctrl+Alt+J"));
+    fn parseable_macos_shortcut_stays_on_global_hotkey_path() {
+        assert!(!history_uses_native_capture("Cmd+K"));
     }
 
     #[cfg(target_os = "macos")]
