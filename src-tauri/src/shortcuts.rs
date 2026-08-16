@@ -17,10 +17,12 @@ pub fn history_uses_native_capture(value: &str) -> bool {
         return true;
     }
 
-    // On macOS, keep ordinary parseable shortcuts on the OS global-hotkey path.
-    // Only layout-specific values that the plugin cannot parse (for example §)
-    // need the native event tap. This preserves a permission-independent fallback
-    // instead of making every macOS switcher shortcut depend on rdev.
+    // macOS trigger architecture:
+    // - ordinary parseable shortcuts are registered as OS-level global hotkeys;
+    // - native event capture is reserved for Tab and layout-specific keys that
+    //   cannot be represented by the global-hotkey parser.
+    // This keeps trigger registration independent from Accessibility while the
+    // native capture layer remains responsible for exclusive switcher input.
     cfg!(target_os = "macos") && parse(value).is_none()
 }
 
@@ -31,9 +33,8 @@ fn action(app: &AppHandle, shortcut: &Shortcut, event_state: ShortcutState) {
 
     #[cfg(target_os = "macos")]
     if state.selector.lock().active {
-        // The native switcher capture owns all input while visible. Do not let
-        // Clipboard Preview's own global Quick Preview / Settings / Pause actions
-        // race that input firewall and replace the active selector UI.
+        // Once the switcher is visible, its native input layer owns interaction.
+        // Do not allow unrelated Clipboard Preview actions to replace that UI.
         return;
     }
 
@@ -132,24 +133,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tab_stays_on_native_capture() {
+    fn tab_uses_native_input_layer() {
         assert!(history_uses_native_capture("Tab"));
     }
 
     #[test]
-    fn ordinary_shortcut_stays_on_global_hotkey_path() {
+    fn ordinary_shortcut_uses_os_global_hotkey() {
         assert!(!history_uses_native_capture("Ctrl+Alt+J"));
     }
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn parseable_macos_shortcut_stays_on_global_hotkey_path() {
+    fn parseable_macos_shortcut_uses_os_global_hotkey() {
         assert!(!history_uses_native_capture("Cmd+K"));
     }
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn layout_specific_key_uses_native_capture_on_macos() {
+    fn layout_specific_key_uses_native_input_layer() {
         assert!(history_uses_native_capture("§"));
     }
 }
