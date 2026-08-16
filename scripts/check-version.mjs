@@ -7,9 +7,13 @@ const releaseTauri = JSON.parse(fs.readFileSync(new URL('../src-tauri/tauri.rele
 const updaterPublicKey = fs.readFileSync(new URL('../src-tauri/updater.pub', import.meta.url), 'utf8').trim();
 
 const rustVersion = cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
-const versions = { package: pkg.version, cargo: rustVersion, tauri: tauri.version };
-if (!rustVersion || new Set(Object.values(versions)).size !== 1) {
-  console.error(`Version mismatch: ${JSON.stringify(versions)}`);
+const appVersions = { package: pkg.version, tauri: tauri.version };
+if (new Set(Object.values(appVersions)).size !== 1) {
+  console.error(`Application version mismatch: ${JSON.stringify(appVersions)}`);
+  process.exit(1);
+}
+if (!rustVersion) {
+  console.error('Rust crate version is missing from src-tauri/Cargo.toml.');
   process.exit(1);
 }
 
@@ -59,5 +63,5 @@ if (officialBuild) {
 }
 
 console.log(
-  `Version ${pkg.version} is synchronized. Startup, clone-safe updater, and ${officialBuild ? 'official release' : 'source build'} invariants are preserved.`
+  `Application version ${pkg.version} is synchronized (Rust crate ${rustVersion}). Startup, clone-safe updater, and ${officialBuild ? 'official release' : 'source build'} invariants are preserved.`
 );
