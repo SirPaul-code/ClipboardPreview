@@ -13,21 +13,33 @@ pub fn history_uses_native_capture(value: &str) -> bool {
     if value.trim().is_empty() {
         return false;
     }
-    if value.eq_ignore_ascii_case("Tab") {
+
+    // macOS switcher input is intentionally owned by one native event tap. That
+    // gives the active switcher exclusive keyboard/scroll priority, supports
+    // layout-specific printable keys, and keeps trigger + navigation handling in
+    // the same input stream. Accessibility permission is requested before the tap
+    // starts, so there is no longer a reason to split macOS history shortcuts
+    // between Tauri global-hotkey and rdev paths.
+    if cfg!(target_os = "macos") {
         return true;
     }
 
-    // On macOS, keep ordinary parseable shortcuts on the OS global-hotkey path.
-    // Only layout-specific values that the plugin cannot parse (for example §)
-    // need the native event tap. This gives us a permission-independent fallback
-    // instead of making every macOS switcher shortcut depend on rdev.
-    cfg!(target_os = "macos") && parse(value).is_none()
+    value.eq_ignore_ascii_case("Tab")
 }
 
 fn action(app: &AppHandle, shortcut: &Shortcut, event_state: ShortcutState) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
+
+    #[cfg(target_os = "macos")]
+    if state.selector.lock().active {
+        // The native switcher capture owns all input while visible. Do not let
+        // Clipboard Preview's own global Quick Preview / Settings / Pause actions
+        // race that input firewall and replace the active selector UI.
+        return;
+    }
+
     let settings = state.settings.read().clone();
     let pause = parse(&settings.shortcuts.pause_monitoring);
 
@@ -127,8 +139,15 @@ mod tests {
         assert!(history_uses_native_capture("Tab"));
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
-    fn ordinary_shortcut_stays_on_global_hotkey_path() {
+    fn ordinary_shortcut_uses_native_capture_on_macos() {
+        assert!(history_uses_native_capture("Cmd+K"));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn ordinary_shortcut_stays_on_global_hotkey_path_off_macos() {
         assert!(!history_uses_native_capture("Ctrl+Alt+J"));
     }
 

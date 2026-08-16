@@ -25,3 +25,101 @@
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 11%, var(--bg));
 }
+
+/* The updater banner used to inherit native WebView button/surface colors,
+   which made dark mode render as a white card with nearly white text. Keep the
+   entire update surface on the same theme tokens as the rest of Settings. */
+.update-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  margin: 0 0 18px;
+  padding: 13px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--text);
+  background: var(--surface-strong);
+}
+
+.update-banner > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.update-banner strong {
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.update-banner span {
+  max-height: 72px;
+  overflow: auto;
+  color: var(--muted-strong);
+  font-size: 9.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.update-actions {
+  min-width: 160px;
+  display: grid;
+  gap: 7px;
+}
+
+.update-actions button {
+  width: 100%;
+  min-width: 0;
+  min-height: 31px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--text);
+  background: var(--surface);
+  font-size: 10px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.update-actions button:hover:not(:disabled) {
+  background: var(--selected);
+}
+
+.update-actions button.primary {
+  border-color: var(--text);
+  color: var(--bg);
+  background: var(--text);
+}
+
+.update-actions button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.update-progress {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--selected-strong);
+}
+
+.update-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width .12s linear;
+}
+
+@media (max-width: 780px) {
+  .update-banner {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .update-actions {
+    min-width: 0;
+  }
+}

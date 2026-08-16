@@ -2,6 +2,8 @@ use std::sync::atomic::AtomicU64;
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::sync::atomic::AtomicBool;
+#[cfg(target_os = "macos")]
+use std::sync::atomic::AtomicU8;
 
 use parking_lot::{Mutex, RwLock};
 
@@ -39,6 +41,10 @@ pub struct AppState {
     pub meta_down: AtomicBool,
     #[cfg(target_os = "macos")]
     pub mac_history_trigger_key: Mutex<Option<rdev::Key>>,
+    #[cfg(target_os = "macos")]
+    pub mac_history_trigger_modifiers: AtomicU8,
+    #[cfg(target_os = "macos")]
+    pub mac_last_wheel_navigation_ms: AtomicU64,
 }
 
 impl AppState {
@@ -69,6 +75,10 @@ impl AppState {
             meta_down: AtomicBool::new(false),
             #[cfg(target_os = "macos")]
             mac_history_trigger_key: Mutex::new(None),
+            #[cfg(target_os = "macos")]
+            mac_history_trigger_modifiers: AtomicU8::new(0),
+            #[cfg(target_os = "macos")]
+            mac_last_wheel_navigation_ms: AtomicU64::new(0),
         }
     }
 }
