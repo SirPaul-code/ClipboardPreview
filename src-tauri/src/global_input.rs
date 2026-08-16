@@ -220,6 +220,7 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
     }
 
     if selector_active {
+        #[cfg(target_os = "macos")]
         let mode = state.settings.read().history.interaction_mode.clone();
         match event.event_type {
             EventType::Wheel { delta_x, delta_y } => {
@@ -429,7 +430,7 @@ fn navigation_delta(state: &AppState, event: &rdev::Event, key: rdev::Key) -> Op
     }
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(target_os = "macos")]
 fn shortcut_matches(state: &AppState, event: &rdev::Event, key: rdev::Key, shortcut: &str) -> bool {
     shortcut_matches_with_ignored_modifiers(state, event, key, shortcut, 0)
 }
@@ -460,10 +461,10 @@ fn shortcut_matches_with_ignored_modifiers(
 
     let expected_modifiers = shortcut_modifier_mask(&parts);
     let actual_modifiers = current_modifier_mask(state);
-    let mut ignored = ignored_modifiers;
 
     #[cfg(target_os = "macos")]
-    {
+    let ignored = {
+        let mut ignored = ignored_modifiers;
         // Printable symbols can require Shift/Option purely to produce the active
         // keyboard-layout character (for example $ or §). When Event.name already
         // proves the requested character matched, do not reject such implicit
@@ -481,7 +482,11 @@ fn shortcut_matches_with_ignored_modifiers(
                 ignored |= MOD_ALT;
             }
         }
-    }
+        ignored
+    };
+
+    #[cfg(not(target_os = "macos"))]
+    let ignored = ignored_modifiers;
 
     modifier_masks_match(actual_modifiers, expected_modifiers, ignored)
 }
