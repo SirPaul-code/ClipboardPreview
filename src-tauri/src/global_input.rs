@@ -8,6 +8,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "macos")]
+use std::time::UNIX_EPOCH;
+
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use tauri::{Emitter, Manager};
 
@@ -22,7 +25,19 @@ use crate::{
 use crate::{permissions, shortcuts};
 
 #[cfg(target_os = "macos")]
-const MAC_NATIVE_INPUT_WARNING: &str = "Clipboard Switcher native keyboard and wheel capture needs macOS Accessibility permission. Clipboard Preview will request access and open Privacy & Security → Accessibility; capture activates automatically after permission is granted.";
+const MAC_NATIVE_INPUT_WARNING: &str = "Clipboard Switcher keyboard, arrow-key, mouse-wheel, and trackpad capture needs macOS Accessibility permission. Clipboard Preview will request access and open Privacy & Security → Accessibility; capture activates automatically after permission is granted.";
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+const MOD_ALT: u8 = 1 << 0;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+const MOD_CONTROL: u8 = 1 << 1;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+const MOD_SHIFT: u8 = 1 << 2;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+const MOD_META: u8 = 1 << 3;
+
+#[cfg(target_os = "macos")]
+const MAC_WHEEL_NAVIGATION_INTERVAL_MS: u64 = 80;
 
 pub fn navigation_shortcut_supported(value: &str) -> bool {
     let Some(key) = value.split('+').next_back() else {
@@ -126,6 +141,8 @@ fn reset_native_state(state: &AppState) {
     #[cfg(target_os = "macos")]
     {
         *state.mac_history_trigger_key.lock() = None;
+        state.mac_history_trigger_modifiers.store(0, Ordering::SeqCst);
+        state.mac_last_wheel_navigation_ms.store(0, Ordering::SeqCst);
     }
 }
 
@@ -156,39 +173,29 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
     }
 
     let selector_active = state.selector.lock().active;
-    if selector_active {
-        match event.event_type {
-            EventType::Wheel { delta_y, .. } if delta_y != 0 => {
-                let _ = selection::navigate(app, if delta_y < 0 { 1 } else { -1 });
-                return None;
-            }
-            EventType::KeyPress(key) => {
-                if let Some(delta) = navigation_delta(&state, &event, key) {
-                    let _ = selection::navigate(app, delta);
-                    return None;
-                }
-            }
-            EventType::KeyRelease(key)
-                if navigation_delta(&state, &event, key).is_some() =>
-            {
-                return None;
-            }
-            _ => {}
-        }
-    }
 
+    // Every macOS history shortcut is handled in this same native stream. Process
+    // its release/repeat before the active-selector input firewall so Hold/Release
+    // can finish cleanly without leaking the trigger back to the foreground app.
     #[cfg(target_os = "macos")]
-    if handle_macos_history_trigger(app, &state, &event) {
+    if selector_active && handle_macos_history_trigger(app, &state, &event) {
         return None;
     }
 
+    // Plain Tab has the special tap-vs-hold replay behavior. Handle it before the
+    // selector firewall for the same reason as the macOS native trigger above.
     match event.event_type {
         EventType::KeyPress(Key::Tab) if history_uses_tab(&state) && !modifier_pressed(&state) => {
             if !state.tab_down.swap(true, Ordering::SeqCst) {
                 state.tab_hold_triggered.store(false, Ordering::SeqCst);
+                #[cfg(target_os = "macos")]
+                {
+                    state.mac_history_trigger_modifiers.store(0, Ordering::SeqCst);
+                    state.mac_last_wheel_navigation_ms.store(0, Ordering::SeqCst);
+                }
                 schedule_tab_hold(app.clone());
             }
-            None
+            return None;
         }
         EventType::KeyRelease(Key::Tab)
             if history_uses_tab(&state) && state.tab_down.load(Ordering::SeqCst) =>
@@ -202,10 +209,98 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
             } else {
                 replay_tab(app.clone());
             }
-            None
+            #[cfg(target_os = "macos")]
+            {
+                state.mac_history_trigger_modifiers.store(0, Ordering::SeqCst);
+                state.mac_last_wheel_navigation_ms.store(0, Ordering::SeqCst);
+            }
+            return None;
         }
-        _ => Some(event),
+        _ => {}
     }
+
+    if selector_active {
+        let mode = state.settings.read().history.interaction_mode.clone();
+        match event.event_type {
+            EventType::Wheel { delta_x, delta_y } => {
+                if delta_y != 0 && delta_y.abs() >= delta_x.abs() {
+                    let should_navigate = {
+                        #[cfg(target_os = "macos")]
+                        {
+                            mac_wheel_navigation_ready(&state, &event)
+                        }
+                        #[cfg(not(target_os = "macos"))]
+                        {
+                            true
+                        }
+                    };
+                    if should_navigate {
+                        let _ = selection::navigate(app, if delta_y < 0 { 1 } else { -1 });
+                    }
+                    return None;
+                }
+
+                // Trackpad gestures can contain a horizontal component. While the
+                // macOS switcher is active, consume the whole scroll gesture so the
+                // foreground application never scrolls behind the preview.
+                #[cfg(target_os = "macos")]
+                {
+                    return None;
+                }
+            }
+            EventType::KeyPress(key) => {
+                if let Some(delta) = navigation_delta(&state, &event, key) {
+                    let _ = selection::navigate(app, delta);
+                    return None;
+                }
+
+                #[cfg(target_os = "macos")]
+                {
+                    if matches!(mode, InteractionMode::Sticky) {
+                        match key {
+                            Key::Return | Key::KpReturn => {
+                                let _ = selection::accept(app);
+                            }
+                            Key::Escape => selection::cancel(app),
+                            _ => {}
+                        }
+                    }
+
+                    // The switcher owns keyboard input while visible. Do not let
+                    // unrelated app shortcuts, arrows, or typed characters fire in
+                    // the application underneath it.
+                    return None;
+                }
+            }
+            EventType::KeyRelease(key) => {
+                if navigation_delta(&state, &event, key).is_some() {
+                    return None;
+                }
+
+                #[cfg(target_os = "macos")]
+                {
+                    return None;
+                }
+            }
+            EventType::ButtonPress(_) | EventType::ButtonRelease(_) => {
+                #[cfg(target_os = "macos")]
+                if matches!(mode, InteractionMode::HoldRelease) {
+                    // Hold/Release overlays are deliberately non-focusable. Swallow
+                    // clicks while they are visible so the app underneath cannot be
+                    // accidentally activated or clicked during selection.
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    if handle_macos_history_trigger(app, &state, &event) {
+        return None;
+    }
+
+    Some(event)
 }
 
 #[cfg(target_os = "macos")]
@@ -220,9 +315,9 @@ fn handle_macos_history_trigger(app: &AppHandle, state: &AppState, event: &rdev:
         )
     };
 
-    // Plain Tab keeps its tap-vs-hold replay path below. Parseable macOS
-    // shortcuts stay on the OS global-hotkey path; only layout-specific values
-    // such as § are captured here through rdev.
+    // Plain Tab keeps its dedicated tap-vs-hold replay path. Every other macOS
+    // history selector stays in this native stream so the trigger, navigation,
+    // and input suppression cannot race a second global-hotkey implementation.
     if shortcut.eq_ignore_ascii_case("Tab")
         || shortcut.trim().is_empty()
         || !shortcuts::history_uses_native_capture(&shortcut)
@@ -235,10 +330,15 @@ fn handle_macos_history_trigger(app: &AppHandle, state: &AppState, event: &rdev:
             let mut trigger = state.mac_history_trigger_key.lock();
             if trigger.is_none() {
                 *trigger = Some(key);
+                state
+                    .mac_history_trigger_modifiers
+                    .store(current_modifier_mask(state), Ordering::SeqCst);
+                state.mac_last_wheel_navigation_ms.store(0, Ordering::SeqCst);
                 drop(trigger);
                 if !state.selector.lock().active {
                     if let Err(error) = overlays::begin(app, mode) {
                         *state.mac_history_trigger_key.lock() = None;
+                        state.mac_history_trigger_modifiers.store(0, Ordering::SeqCst);
                         log::warn!("Could not open Clipboard Switcher from macOS native shortcut: {error}");
                     }
                 }
@@ -266,6 +366,8 @@ fn handle_macos_history_trigger(app: &AppHandle, state: &AppState, event: &rdev:
             }
 
             *state.mac_history_trigger_key.lock() = None;
+            state.mac_history_trigger_modifiers.store(0, Ordering::SeqCst);
+            state.mac_last_wheel_navigation_ms.store(0, Ordering::SeqCst);
             if matches!(mode, InteractionMode::HoldRelease) && state.selector.lock().active {
                 let _ = selection::accept(app);
             }
@@ -275,12 +377,52 @@ fn handle_macos_history_trigger(app: &AppHandle, state: &AppState, event: &rdev:
     }
 }
 
+#[cfg(target_os = "macos")]
+fn mac_wheel_navigation_ready(state: &AppState, event: &rdev::Event) -> bool {
+    let now_ms = event
+        .time
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64)
+        .unwrap_or(0);
+    let last = state.mac_last_wheel_navigation_ms.load(Ordering::SeqCst);
+    if last != 0 && now_ms.saturating_sub(last) < MAC_WHEEL_NAVIGATION_INTERVAL_MS {
+        return false;
+    }
+    state
+        .mac_last_wheel_navigation_ms
+        .store(now_ms.max(1), Ordering::SeqCst);
+    true
+}
+
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn navigation_delta(state: &AppState, event: &rdev::Event, key: rdev::Key) -> Option<i32> {
     let settings = state.settings.read();
-    if shortcut_matches(state, event, key, &settings.shortcuts.previous_item) {
+    let ignored_modifiers = {
+        #[cfg(target_os = "macos")]
+        {
+            state.mac_history_trigger_modifiers.load(Ordering::SeqCst)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            0
+        }
+    };
+
+    if shortcut_matches_with_ignored_modifiers(
+        state,
+        event,
+        key,
+        &settings.shortcuts.previous_item,
+        ignored_modifiers,
+    ) {
         Some(-1)
-    } else if shortcut_matches(state, event, key, &settings.shortcuts.next_item) {
+    } else if shortcut_matches_with_ignored_modifiers(
+        state,
+        event,
+        key,
+        &settings.shortcuts.next_item,
+        ignored_modifiers,
+    ) {
         Some(1)
     } else {
         None
@@ -289,6 +431,17 @@ fn navigation_delta(state: &AppState, event: &rdev::Event, key: rdev::Key) -> Op
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn shortcut_matches(state: &AppState, event: &rdev::Event, key: rdev::Key, shortcut: &str) -> bool {
+    shortcut_matches_with_ignored_modifiers(state, event, key, shortcut, 0)
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn shortcut_matches_with_ignored_modifiers(
+    state: &AppState,
+    event: &rdev::Event,
+    key: rdev::Key,
+    shortcut: &str,
+    ignored_modifiers: u8,
+) -> bool {
     let parts: Vec<_> = shortcut
         .split('+')
         .map(str::trim)
@@ -298,25 +451,84 @@ fn shortcut_matches(state: &AppState, event: &rdev::Event, key: rdev::Key, short
         return false;
     };
 
-    let expected_ctrl = parts.iter().any(|part| part.eq_ignore_ascii_case("Ctrl"));
-    let expected_alt = parts.iter().any(|part| part.eq_ignore_ascii_case("Alt"));
-    let expected_shift = parts.iter().any(|part| part.eq_ignore_ascii_case("Shift"));
-    let expected_meta = parts.iter().any(|part| {
-        part.eq_ignore_ascii_case("Cmd")
-            || part.eq_ignore_ascii_case("Meta")
-            || part.eq_ignore_ascii_case("Super")
-    });
-
-    if expected_ctrl != state.control_down.load(Ordering::SeqCst)
-        || expected_alt != state.alt_down.load(Ordering::SeqCst)
-        || expected_shift != state.shift_down.load(Ordering::SeqCst)
-        || expected_meta != state.meta_down.load(Ordering::SeqCst)
-    {
+    let Some(actual_key) = canonical_key(event, key) else {
+        return false;
+    };
+    if !actual_key.eq_ignore_ascii_case(expected_key) {
         return false;
     }
 
-    canonical_key(event, key)
-        .is_some_and(|actual| actual.eq_ignore_ascii_case(expected_key))
+    let expected_modifiers = shortcut_modifier_mask(&parts);
+    let actual_modifiers = current_modifier_mask(state);
+    let mut ignored = ignored_modifiers;
+
+    #[cfg(target_os = "macos")]
+    {
+        // Printable symbols can require Shift/Option purely to produce the active
+        // keyboard-layout character (for example $ or §). When Event.name already
+        // proves the requested character matched, do not reject such implicit
+        // layout modifiers unless the shortcut explicitly requested them.
+        let printable_name_matches = expected_key.chars().count() == 1
+            && event
+                .name
+                .as_ref()
+                .is_some_and(|name| name.eq_ignore_ascii_case(expected_key));
+        if printable_name_matches {
+            if expected_modifiers & MOD_SHIFT == 0 {
+                ignored |= MOD_SHIFT;
+            }
+            if expected_modifiers & MOD_ALT == 0 {
+                ignored |= MOD_ALT;
+            }
+        }
+    }
+
+    modifier_masks_match(actual_modifiers, expected_modifiers, ignored)
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn shortcut_modifier_mask(parts: &[&str]) -> u8 {
+    let mut mask = 0;
+    if parts.iter().any(|part| part.eq_ignore_ascii_case("Ctrl")) {
+        mask |= MOD_CONTROL;
+    }
+    if parts.iter().any(|part| part.eq_ignore_ascii_case("Alt")) {
+        mask |= MOD_ALT;
+    }
+    if parts.iter().any(|part| part.eq_ignore_ascii_case("Shift")) {
+        mask |= MOD_SHIFT;
+    }
+    if parts.iter().any(|part| {
+        part.eq_ignore_ascii_case("Cmd")
+            || part.eq_ignore_ascii_case("Meta")
+            || part.eq_ignore_ascii_case("Super")
+    }) {
+        mask |= MOD_META;
+    }
+    mask
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn current_modifier_mask(state: &AppState) -> u8 {
+    let mut mask = 0;
+    if state.alt_down.load(Ordering::SeqCst) {
+        mask |= MOD_ALT;
+    }
+    if state.control_down.load(Ordering::SeqCst) {
+        mask |= MOD_CONTROL;
+    }
+    if state.shift_down.load(Ordering::SeqCst) {
+        mask |= MOD_SHIFT;
+    }
+    if state.meta_down.load(Ordering::SeqCst) {
+        mask |= MOD_META;
+    }
+    mask
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn modifier_masks_match(actual: u8, expected: u8, ignored: u8) -> bool {
+    (actual & !ignored) == (expected & !ignored)
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -530,3 +742,28 @@ pub fn start(_app: AppHandle) {
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn reset_state(_app: &AppHandle) {}
+
+#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selector_owned_modifiers_are_ignored_for_navigation() {
+        assert!(modifier_masks_match(
+            MOD_META | MOD_SHIFT,
+            0,
+            MOD_META | MOD_SHIFT
+        ));
+    }
+
+    #[test]
+    fn unrelated_modifiers_still_block_navigation() {
+        assert!(!modifier_masks_match(MOD_META | MOD_ALT, 0, MOD_META));
+    }
+
+    #[test]
+    fn explicit_navigation_modifier_is_still_required() {
+        assert!(!modifier_masks_match(0, MOD_CONTROL, 0));
+        assert!(modifier_masks_match(MOD_CONTROL, MOD_CONTROL, 0));
+    }
+}
