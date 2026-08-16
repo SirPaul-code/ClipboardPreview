@@ -64,6 +64,11 @@ jobs:
       CLIPBOARD_PREVIEW_OFFICIAL_BUILD: '1'
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # Tauri uses these for Apple notarization on macOS. They are harmlessly empty
+      # on the Windows/Linux matrix entries.
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -101,18 +106,78 @@ jobs:
       - name: Verify locked Rust dependency graph
         run: cargo metadata --locked --manifest-path src-tauri/Cargo.toml --no-deps
 
+      - name: Prepare Developer ID signing and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          for required in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY APPLE_TEAM_ID; do
+            if [ -z "${!required:-}" ]; then
+              echo "Missing required macOS production signing secret: ${required}" >&2
+              exit 1
+            fi
+          done
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/clipboard-preview-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+          API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+
+          printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A -out "$CERT_PATH"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$API_KEY_PATH"
+          chmod 600 "$CERT_PATH" "$API_KEY_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+
+          CERT_ID="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(Developer ID Application:.*\)".*/\1/p' | head -n 1)"
+          if [ -z "$CERT_ID" ]; then
+            echo "Imported certificate does not contain a valid Developer ID Application identity" >&2
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH" >&2 || true
+            exit 1
+          fi
+
+          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_PATH=$API_KEY_PATH" >> "$GITHUB_ENV"
+          echo "CLIPBOARD_PREVIEW_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "Developer ID signing identity imported successfully."
+
       - name: Build and upload signed updater bundles
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ env.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ env.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
+          APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID }}
         with:
           tagName: ${{ needs.prepare-release.outputs.tag }}
           releaseName: Clipboard Preview ${{ needs.prepare-release.outputs.tag }}
           releaseBody: |
             Clipboard Preview official community release.
 
-            Automatic updater artifacts are cryptographically signed by the Clipboard Preview updater key. Windows binaries are not Authenticode-signed and macOS community builds use ad-hoc signing unless platform signing credentials are configured separately.
+            macOS builds are signed with Apple Developer ID, use the hardened runtime, and are submitted to Apple's notarization service before release. Automatic updater artifacts are also cryptographically signed by the Clipboard Preview updater key.
+
+            Windows binaries are not Authenticode-signed yet.
 
             macOS manual download guide:
             - Apple Silicon (M1/M2/M3/M4): download the `darwin-aarch64.dmg` file.
@@ -127,6 +192,36 @@ jobs:
           retryAttempts: 2
           args: --config src-tauri/tauri.release.conf.json --bundles ${{ matrix.bundles }}
           releaseAssetNamePattern: ClipboardPreview-[version]-[platform]-[arch][setup][ext]
+
+      - name: Verify Developer ID signature and notarization ticket
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$(find src-tauri/target -type d -path '*/release/bundle/macos/Clipboard Preview.app' -print -quit)"
+          if [ -z "$APP_PATH" ]; then
+            echo "Built macOS app bundle was not found" >&2
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          CODESIGN_INFO="$RUNNER_TEMP/clipboard-preview-codesign.txt"
+          codesign -dvvv "$APP_PATH" 2> "$CODESIGN_INFO"
+          grep -q 'Authority=Developer ID Application:' "$CODESIGN_INFO"
+          grep -q "TeamIdentifier=${APPLE_TEAM_ID}" "$CODESIGN_INFO"
+          spctl --assess --type execute --verbose=4 "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+
+          echo "macOS Developer ID signature, Gatekeeper assessment, and stapled notarization ticket are valid."
+
+      - name: Remove temporary signing keychain
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [ -n "${CLIPBOARD_PREVIEW_KEYCHAIN:-}" ]; then
+            security delete-keychain "$CLIPBOARD_PREVIEW_KEYCHAIN" || true
+          fi
 
   publish-release:
     name: Verify and publish complete release
