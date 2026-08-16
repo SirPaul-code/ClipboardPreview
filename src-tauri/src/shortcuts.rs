@@ -13,17 +13,15 @@ pub fn history_uses_native_capture(value: &str) -> bool {
     if value.trim().is_empty() {
         return false;
     }
-    if value.eq_ignore_ascii_case("Tab") {
+
+    // macOS uses one native session-level event stream for the Clipboard Switcher
+    // trigger and its hold/release interaction. This is deliberately separate from
+    // the app's ordinary Quick Preview / Settings / Pause global shortcuts.
+    if cfg!(target_os = "macos") {
         return true;
     }
 
-    // macOS trigger architecture:
-    // - ordinary parseable shortcuts are registered as OS-level global hotkeys;
-    // - native event capture is reserved for Tab and layout-specific keys that
-    //   cannot be represented by the global-hotkey parser.
-    // This keeps trigger registration independent from Accessibility while the
-    // native capture layer remains responsible for exclusive switcher input.
-    cfg!(target_os = "macos") && parse(value).is_none()
+    value.eq_ignore_ascii_case("Tab")
 }
 
 fn action(app: &AppHandle, shortcut: &Shortcut, event_state: ShortcutState) {
@@ -137,20 +135,17 @@ mod tests {
         assert!(history_uses_native_capture("Tab"));
     }
 
-    #[test]
-    fn ordinary_shortcut_uses_os_global_hotkey() {
-        assert!(!history_uses_native_capture("Ctrl+Alt+J"));
-    }
-
     #[cfg(target_os = "macos")]
     #[test]
-    fn parseable_macos_shortcut_uses_os_global_hotkey() {
-        assert!(!history_uses_native_capture("Cmd+K"));
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn layout_specific_key_uses_native_input_layer() {
+    fn ordinary_macos_switcher_shortcut_uses_session_input_layer() {
+        assert!(history_uses_native_capture("Cmd+K"));
+        assert!(history_uses_native_capture("Alt+Œ"));
         assert!(history_uses_native_capture("§"));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn ordinary_shortcut_stays_on_global_hotkey_path_off_macos() {
+        assert!(!history_uses_native_capture("Ctrl+Alt+J"));
     }
 }

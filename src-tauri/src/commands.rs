@@ -187,6 +187,11 @@ pub fn clear_history(app: AppHandle) -> Result<(), String> {
 pub fn select_history_item(app: AppHandle, id: String) -> Result<(), String> {
     let (settings, entry) = {
         let state = app.state::<AppState>();
+        // A pointer/click selection is a terminal switcher action just like Enter
+        // or hold-release acceptance. Always clear the selector state before the
+        // clipboard write so a hidden overlay can never leave the app believing
+        // the switcher is still active and block every subsequent shortcut.
+        state.selector.lock().active = false;
         let settings = state.settings.read().clone();
         let entry = state
             .history
@@ -196,13 +201,13 @@ pub fn select_history_item(app: AppHandle, id: String) -> Result<(), String> {
         (settings, entry)
     };
 
-    clipboard::write_entry(&app, &entry)?;
-    if settings.history.move_selected_to_top {
+    let result = clipboard::write_entry(&app, &entry);
+    if result.is_ok() && settings.history.move_selected_to_top {
         app.state::<AppState>().history.lock().promote(&id);
         settings_store::schedule_history_save(&app, settings.history.persist_history);
     }
     overlays::hide_history(&app);
-    Ok(())
+    result
 }
 
 #[tauri::command]
@@ -246,15 +251,32 @@ pub fn platform_status(app: AppHandle) -> PlatformStatus {
     let linux = cfg!(target_os = "linux");
     let accessibility_granted = permissions::accessibility_granted();
     let state = app.state::<AppState>();
-    let startup_warnings = state.startup_warnings.read().clone();
+
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    let native_input_ready = state
+        .native_input_ready
+        .load(std::sync::atomic::Ordering::SeqCst);
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let native_input_ready = false;
+
+    let mut startup_warnings = state.startup_warnings.read().clone();
+    if mac && native_input_ready {
+        // Permission prompts are transient. If Settings missed the status-changed
+        // event while System Settings was in front, never keep showing a stale
+        // Accessibility warning once the modifying session event tap is live.
+        startup_warnings.retain(|warning| {
+            !warning.starts_with("Clipboard Switcher needs macOS Accessibility permission")
+                && !warning.starts_with("Clipboard Switcher keyboard, arrow-key, mouse-wheel")
+        });
+    }
 
     PlatformStatus {
         os: std::env::consts::OS.into(),
         accessibility_required: mac,
         accessibility_granted,
-        hold_release_available: windows || (mac && accessibility_granted),
-        global_wheel_available: windows || (mac && accessibility_granted),
-        tab_hold_available: windows || (mac && accessibility_granted),
+        hold_release_available: windows || (mac && native_input_ready),
+        global_wheel_available: windows || (mac && native_input_ready),
+        tab_hold_available: windows || (mac && native_input_ready),
         image_history_available: windows || mac || linux,
         history_memory_budget_mib: HISTORY_MEMORY_BUDGET_MIB,
         history_performance_warning_items: HISTORY_PERF_WARNING_ITEMS,
