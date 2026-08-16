@@ -6,7 +6,7 @@ use std::{
     ptr,
     sync::atomic::{AtomicPtr, Ordering},
     thread,
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use tauri::{AppHandle, Emitter, Manager};
@@ -56,6 +56,12 @@ const CG_EVENT_FLAG_MASK_ALTERNATE: CGEventFlags = 1 << 19;
 const CG_EVENT_FLAG_MASK_COMMAND: CGEventFlags = 1 << 20;
 const CG_EVENT_SOURCE_STATE_HID_SYSTEM: i32 = 1;
 const TAB_KEY_CODE: CGKeyCode = 48;
+
+const MOD_ALT: u8 = 1 << 0;
+const MOD_CONTROL: u8 = 1 << 1;
+const MOD_SHIFT: u8 = 1 << 2;
+const MOD_META: u8 = 1 << 3;
+const MAC_WHEEL_NAVIGATION_INTERVAL_MS: u64 = 80;
 
 const MAC_ACCESSIBILITY_WARNING: &str = "Clipboard Switcher needs macOS Accessibility permission for global keyboard and wheel capture. Enable Clipboard Preview in System Settings → Privacy & Security → Accessibility; this message disappears automatically when native input is ready.";
 
@@ -108,6 +114,10 @@ struct CallbackContext {
 
 pub fn start(app: AppHandle) {
     thread::spawn(move || {
+        if let Some(state) = app.try_state::<AppState>() {
+            state.native_input_ready.store(false, Ordering::SeqCst);
+        }
+
         if !permissions::native_input_permissions_granted() {
             push_warning(&app, MAC_ACCESSIBILITY_WARNING);
             if let Err(error) = permissions::wait_for_native_input_permissions() {
@@ -116,7 +126,6 @@ pub fn start(app: AppHandle) {
                 push_warning(&app, &message);
                 return;
             }
-            remove_warning(&app, MAC_ACCESSIBILITY_WARNING);
         }
 
         if let Err(error) = run_event_tap(app.clone()) {
@@ -139,15 +148,19 @@ fn run_event_tap(app: AppHandle) -> Result<(), String> {
     });
     let context_ptr = Box::into_raw(context);
 
-    // kCGHIDEventTap is root-only. Clipboard Preview runs as the signed-in user,
-    // so use an active session event tap. Accessibility authorizes this modifying
-    // tap and lets us suppress the trigger key while the switcher is active.
+    // A normal desktop process must use a session-level modifying tap. Limit the
+    // mask to the input classes the switcher actually needs instead of grabbing
+    // every Core Graphics event in the login session.
+    let event_mask = (1_u64 << CG_EVENT_KEY_DOWN)
+        | (1_u64 << CG_EVENT_KEY_UP)
+        | (1_u64 << CG_EVENT_FLAGS_CHANGED)
+        | (1_u64 << CG_EVENT_SCROLL_WHEEL);
     let tap = unsafe {
         CGEventTapCreate(
             CG_SESSION_EVENT_TAP,
             CG_HEAD_INSERT_EVENT_TAP,
             CG_EVENT_TAP_OPTION_DEFAULT,
-            u64::from(u32::MAX),
+            event_mask,
             Some(raw_callback),
             context_ptr.cast(),
         )
@@ -189,6 +202,7 @@ fn run_event_tap(app: AppHandle) -> Result<(), String> {
     if let Some(state) = app.try_state::<AppState>() {
         state.native_input_ready.store(true, Ordering::SeqCst);
     }
+    remove_warning(&app, MAC_ACCESSIBILITY_WARNING);
     remove_capture_failure_warnings(&app);
     let _ = app.emit("clipboard://status-changed", ());
 
@@ -231,18 +245,19 @@ unsafe extern "C" fn raw_callback(
         return event;
     }
 
+    let flags = unsafe { CGEventGetFlags(event) };
+    sync_modifier_flags(&context.app, flags);
+
     let Some(native_event) = convert_event(event_type, event) else {
         return event;
     };
 
-    let fallback = native_event.clone();
     let result = catch_unwind(AssertUnwindSafe(|| handle_event(&context.app, native_event)));
     match result {
-        Ok(Some(_)) => event,
-        Ok(None) => ptr::null_mut(),
+        Ok(true) => ptr::null_mut(),
+        Ok(false) => event,
         Err(_) => {
             log::error!("macOS event-tap callback panicked; passing the event through");
-            let _ = fallback;
             event
         }
     }
@@ -271,8 +286,12 @@ fn convert_event(event_type: CGEventType, event: CGEventRef) -> Option<rdev::Eve
             }
         }
         CG_EVENT_SCROLL_WHEEL => {
-            let delta_y = unsafe { CGEventGetIntegerValueField(event, CG_SCROLL_WHEEL_EVENT_DELTA_AXIS_1) };
-            let delta_x = unsafe { CGEventGetIntegerValueField(event, CG_SCROLL_WHEEL_EVENT_DELTA_AXIS_2) };
+            let delta_y = unsafe {
+                CGEventGetIntegerValueField(event, CG_SCROLL_WHEEL_EVENT_DELTA_AXIS_1)
+            };
+            let delta_x = unsafe {
+                CGEventGetIntegerValueField(event, CG_SCROLL_WHEEL_EVENT_DELTA_AXIS_2)
+            };
             EventType::Wheel { delta_x, delta_y }
         }
         CG_EVENT_NULL => return None,
@@ -418,57 +437,39 @@ fn key_from_code(code: CGKeyCode) -> rdev::Key {
     }
 }
 
-fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
+// true means consume the native event; false means pass it to the normal session.
+fn handle_event(app: &AppHandle, event: rdev::Event) -> bool {
     use rdev::{EventType, Key};
 
     let Some(state) = app.try_state::<AppState>() else {
-        return Some(event);
+        return false;
     };
 
     if state.settings.read().general.monitoring_paused {
         reset_native_state(&state);
-        return Some(event);
+        return false;
     }
-
-    update_modifier_state(&state, &event.event_type);
 
     if state.replaying_tab.load(Ordering::SeqCst) {
-        return Some(event);
+        return false;
     }
 
-    let selector_active = state.selector.lock().active;
-    if selector_active {
-        match event.event_type {
-            EventType::Wheel { delta_y, .. } if delta_y != 0 => {
-                let _ = selection::navigate(app, if delta_y < 0 { 1 } else { -1 });
-                return None;
-            }
-            EventType::KeyPress(key) => {
-                if let Some(delta) = navigation_delta(&state, &event, key) {
-                    let _ = selection::navigate(app, delta);
-                    return None;
-                }
-            }
-            EventType::KeyRelease(key)
-                if navigation_delta(&state, &event, key).is_some() =>
-            {
-                return None;
-            }
-            _ => {}
-        }
-    }
-
+    // Trigger release/repeat must be processed before the selector input firewall.
+    // This guarantees Hold/Release always terminates and a pointer-based accept can
+    // still consume the eventual trigger-key release after the overlay has hidden.
     if handle_history_trigger(app, &state, &event) {
-        return None;
+        return true;
     }
 
     match event.event_type {
         EventType::KeyPress(Key::Tab) if history_uses_tab(&state) && !modifier_pressed(&state) => {
             if !state.tab_down.swap(true, Ordering::SeqCst) {
                 state.tab_hold_triggered.store(false, Ordering::SeqCst);
+                state.mac_history_trigger_modifiers.store(0, Ordering::SeqCst);
+                state.mac_last_wheel_navigation_ms.store(0, Ordering::SeqCst);
                 schedule_tab_hold(app.clone());
             }
-            None
+            return true;
         }
         EventType::KeyRelease(Key::Tab)
             if history_uses_tab(&state) && state.tab_down.load(Ordering::SeqCst) =>
@@ -482,9 +483,60 @@ fn handle_event(app: &AppHandle, event: rdev::Event) -> Option<rdev::Event> {
             } else {
                 replay_tab(app.clone());
             }
-            None
+            state.mac_history_trigger_modifiers.store(0, Ordering::SeqCst);
+            state.mac_last_wheel_navigation_ms.store(0, Ordering::SeqCst);
+            return true;
         }
-        _ => Some(event),
+        _ => {}
+    }
+
+    if !state.selector.lock().active {
+        return false;
+    }
+
+    let mode = state.settings.read().history.interaction_mode.clone();
+    match event.event_type {
+        EventType::Wheel { delta_x, delta_y } => {
+            if delta_y != 0 && delta_y.abs() >= delta_x.abs() && mac_wheel_navigation_ready(&state, &event) {
+                let _ = selection::navigate(app, if delta_y < 0 { 1 } else { -1 });
+            }
+            // Once visible, the switcher owns the scroll gesture globally so the
+            // foreground app never scrolls behind it.
+            true
+        }
+        EventType::KeyPress(key) => {
+            if let Some(delta) = navigation_delta(&state, &event, key) {
+                let _ = selection::navigate(app, delta);
+                return true;
+            }
+
+            if matches!(mode, InteractionMode::Sticky) {
+                match key {
+                    Key::Return | Key::KpReturn => {
+                        let _ = selection::accept(app);
+                        return true;
+                    }
+                    Key::Escape => {
+                        selection::cancel(app);
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
+
+            // Modifier transitions are allowed through so a Cmd/Option/Ctrl/Shift
+            // press that began outside the overlay can never become logically stuck
+            // in the foreground application. All non-modifier keyboard input is
+            // owned by the active switcher.
+            !modifier_key(key)
+        }
+        EventType::KeyRelease(key) => {
+            if navigation_delta(&state, &event, key).is_some() {
+                return true;
+            }
+            !modifier_key(key)
+        }
+        _ => false,
     }
 }
 
@@ -499,9 +551,6 @@ fn handle_history_trigger(app: &AppHandle, state: &AppState, event: &rdev::Event
         )
     };
 
-    // Plain Tab keeps its tap-vs-hold replay path below. Every other macOS
-    // history shortcut is handled by the same native event tap, including
-    // layout-specific printable keys such as § and modifier combinations.
     if shortcut.eq_ignore_ascii_case("Tab") || shortcut.trim().is_empty() {
         return false;
     }
@@ -511,11 +560,18 @@ fn handle_history_trigger(app: &AppHandle, state: &AppState, event: &rdev::Event
             let mut trigger = state.mac_history_trigger_key.lock();
             if trigger.is_none() {
                 *trigger = Some(key);
+                state
+                    .mac_history_trigger_modifiers
+                    .store(current_modifier_mask(state), Ordering::SeqCst);
+                state.mac_last_wheel_navigation_ms.store(0, Ordering::SeqCst);
                 drop(trigger);
                 if !state.selector.lock().active {
                     if let Err(error) = overlays::begin(app, mode) {
                         *state.mac_history_trigger_key.lock() = None;
-                        log::warn!("Could not open Clipboard Switcher from macOS native shortcut: {error}");
+                        state.mac_history_trigger_modifiers.store(0, Ordering::SeqCst);
+                        log::warn!(
+                            "Could not open Clipboard Switcher from macOS native shortcut: {error}"
+                        );
                     }
                 }
             }
@@ -541,6 +597,8 @@ fn handle_history_trigger(app: &AppHandle, state: &AppState, event: &rdev::Event
             }
 
             *state.mac_history_trigger_key.lock() = None;
+            state.mac_history_trigger_modifiers.store(0, Ordering::SeqCst);
+            state.mac_last_wheel_navigation_ms.store(0, Ordering::SeqCst);
             if matches!(mode, InteractionMode::HoldRelease) && state.selector.lock().active {
                 let _ = selection::accept(app);
             }
@@ -550,11 +608,41 @@ fn handle_history_trigger(app: &AppHandle, state: &AppState, event: &rdev::Event
     }
 }
 
+fn mac_wheel_navigation_ready(state: &AppState, event: &rdev::Event) -> bool {
+    let now_ms = event
+        .time
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64)
+        .unwrap_or(0);
+    let last = state.mac_last_wheel_navigation_ms.load(Ordering::SeqCst);
+    if last != 0 && now_ms.saturating_sub(last) < MAC_WHEEL_NAVIGATION_INTERVAL_MS {
+        return false;
+    }
+    state
+        .mac_last_wheel_navigation_ms
+        .store(now_ms.max(1), Ordering::SeqCst);
+    true
+}
+
 fn navigation_delta(state: &AppState, event: &rdev::Event, key: rdev::Key) -> Option<i32> {
     let settings = state.settings.read();
-    if shortcut_matches(state, event, key, &settings.shortcuts.previous_item) {
+    let ignored_modifiers = state.mac_history_trigger_modifiers.load(Ordering::SeqCst);
+
+    if shortcut_matches_with_ignored_modifiers(
+        state,
+        event,
+        key,
+        &settings.shortcuts.previous_item,
+        ignored_modifiers,
+    ) {
         Some(-1)
-    } else if shortcut_matches(state, event, key, &settings.shortcuts.next_item) {
+    } else if shortcut_matches_with_ignored_modifiers(
+        state,
+        event,
+        key,
+        &settings.shortcuts.next_item,
+        ignored_modifiers,
+    ) {
         Some(1)
     } else {
         None
@@ -562,6 +650,16 @@ fn navigation_delta(state: &AppState, event: &rdev::Event, key: rdev::Key) -> Op
 }
 
 fn shortcut_matches(state: &AppState, event: &rdev::Event, key: rdev::Key, shortcut: &str) -> bool {
+    shortcut_matches_with_ignored_modifiers(state, event, key, shortcut, 0)
+}
+
+fn shortcut_matches_with_ignored_modifiers(
+    state: &AppState,
+    event: &rdev::Event,
+    key: rdev::Key,
+    shortcut: &str,
+    ignored_modifiers: u8,
+) -> bool {
     let parts: Vec<_> = shortcut
         .split('+')
         .map(str::trim)
@@ -571,25 +669,97 @@ fn shortcut_matches(state: &AppState, event: &rdev::Event, key: rdev::Key, short
         return false;
     };
 
-    let expected_ctrl = parts.iter().any(|part| part.eq_ignore_ascii_case("Ctrl"));
-    let expected_alt = parts.iter().any(|part| part.eq_ignore_ascii_case("Alt"));
-    let expected_shift = parts.iter().any(|part| part.eq_ignore_ascii_case("Shift"));
-    let expected_meta = parts.iter().any(|part| {
-        part.eq_ignore_ascii_case("Cmd")
-            || part.eq_ignore_ascii_case("Meta")
-            || part.eq_ignore_ascii_case("Super")
-    });
-
-    if expected_ctrl != state.control_down.load(Ordering::SeqCst)
-        || expected_alt != state.alt_down.load(Ordering::SeqCst)
-        || expected_shift != state.shift_down.load(Ordering::SeqCst)
-        || expected_meta != state.meta_down.load(Ordering::SeqCst)
-    {
+    let Some(actual_key) = canonical_key(event, key) else {
+        return false;
+    };
+    if !actual_key.eq_ignore_ascii_case(expected_key) {
         return false;
     }
 
-    canonical_key(event, key)
-        .is_some_and(|actual| actual.eq_ignore_ascii_case(expected_key))
+    let expected_modifiers = shortcut_modifier_mask(&parts);
+    let actual_modifiers = current_modifier_mask(state);
+    let mut ignored = ignored_modifiers;
+
+    // Printable symbols may require Shift/Option only because of the active layout.
+    // If Core Graphics already reports the exact requested character, those implicit
+    // layout modifiers are not part of the user's configured shortcut unless they
+    // were explicitly written into it.
+    let printable_name_matches = expected_key.chars().count() == 1
+        && event
+            .name
+            .as_ref()
+            .is_some_and(|name| name.eq_ignore_ascii_case(expected_key));
+    if printable_name_matches {
+        if expected_modifiers & MOD_SHIFT == 0 {
+            ignored |= MOD_SHIFT;
+        }
+        if expected_modifiers & MOD_ALT == 0 {
+            ignored |= MOD_ALT;
+        }
+    }
+
+    modifier_masks_match(actual_modifiers, expected_modifiers, ignored)
+}
+
+fn shortcut_modifier_mask(parts: &[&str]) -> u8 {
+    let mut mask = 0;
+    if parts.iter().any(|part| part.eq_ignore_ascii_case("Ctrl")) {
+        mask |= MOD_CONTROL;
+    }
+    if parts.iter().any(|part| part.eq_ignore_ascii_case("Alt")) {
+        mask |= MOD_ALT;
+    }
+    if parts.iter().any(|part| part.eq_ignore_ascii_case("Shift")) {
+        mask |= MOD_SHIFT;
+    }
+    if parts.iter().any(|part| {
+        part.eq_ignore_ascii_case("Cmd")
+            || part.eq_ignore_ascii_case("Meta")
+            || part.eq_ignore_ascii_case("Super")
+    }) {
+        mask |= MOD_META;
+    }
+    mask
+}
+
+fn current_modifier_mask(state: &AppState) -> u8 {
+    let mut mask = 0;
+    if state.alt_down.load(Ordering::SeqCst) {
+        mask |= MOD_ALT;
+    }
+    if state.control_down.load(Ordering::SeqCst) {
+        mask |= MOD_CONTROL;
+    }
+    if state.shift_down.load(Ordering::SeqCst) {
+        mask |= MOD_SHIFT;
+    }
+    if state.meta_down.load(Ordering::SeqCst) {
+        mask |= MOD_META;
+    }
+    mask
+}
+
+fn modifier_masks_match(actual: u8, expected: u8, ignored: u8) -> bool {
+    (actual & !ignored) == (expected & !ignored)
+}
+
+fn modifier_pressed(state: &AppState) -> bool {
+    current_modifier_mask(state) != 0
+}
+
+fn modifier_key(key: rdev::Key) -> bool {
+    use rdev::Key;
+    matches!(
+        key,
+        Key::Alt
+            | Key::AltGr
+            | Key::ControlLeft
+            | Key::ControlRight
+            | Key::ShiftLeft
+            | Key::ShiftRight
+            | Key::MetaLeft
+            | Key::MetaRight
+    )
 }
 
 fn canonical_key(event: &rdev::Event, key: rdev::Key) -> Option<String> {
@@ -679,31 +849,22 @@ fn canonical_key(event: &rdev::Event, key: rdev::Key) -> Option<String> {
     physical.map(str::to_string)
 }
 
-fn update_modifier_state(state: &AppState, event_type: &rdev::EventType) {
-    use rdev::{EventType, Key};
-
-    let (key, pressed) = match event_type {
-        EventType::KeyPress(key) => (*key, true),
-        EventType::KeyRelease(key) => (*key, false),
-        _ => return,
+fn sync_modifier_flags(app: &AppHandle, flags: CGEventFlags) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
     };
-
-    match key {
-        Key::Alt | Key::AltGr => state.alt_down.store(pressed, Ordering::SeqCst),
-        Key::ControlLeft | Key::ControlRight => {
-            state.control_down.store(pressed, Ordering::SeqCst)
-        }
-        Key::ShiftLeft | Key::ShiftRight => state.shift_down.store(pressed, Ordering::SeqCst),
-        Key::MetaLeft | Key::MetaRight => state.meta_down.store(pressed, Ordering::SeqCst),
-        _ => {}
-    }
-}
-
-fn modifier_pressed(state: &AppState) -> bool {
-    state.alt_down.load(Ordering::SeqCst)
-        || state.control_down.load(Ordering::SeqCst)
-        || state.shift_down.load(Ordering::SeqCst)
-        || state.meta_down.load(Ordering::SeqCst)
+    state
+        .alt_down
+        .store(flags & CG_EVENT_FLAG_MASK_ALTERNATE != 0, Ordering::SeqCst);
+    state
+        .control_down
+        .store(flags & CG_EVENT_FLAG_MASK_CONTROL != 0, Ordering::SeqCst);
+    state
+        .shift_down
+        .store(flags & CG_EVENT_FLAG_MASK_SHIFT != 0, Ordering::SeqCst);
+    state
+        .meta_down
+        .store(flags & CG_EVENT_FLAG_MASK_COMMAND != 0, Ordering::SeqCst);
 }
 
 fn reset_native_state(state: &AppState) {
@@ -715,6 +876,8 @@ fn reset_native_state(state: &AppState) {
     state.shift_down.store(false, Ordering::SeqCst);
     state.meta_down.store(false, Ordering::SeqCst);
     *state.mac_history_trigger_key.lock() = None;
+    state.mac_history_trigger_modifiers.store(0, Ordering::SeqCst);
+    state.mac_last_wheel_navigation_ms.store(0, Ordering::SeqCst);
 }
 
 fn schedule_tab_hold(app: AppHandle) {
@@ -730,8 +893,7 @@ fn schedule_tab_hold(app: AppHandle) {
             if state.tab_hold_triggered.swap(true, Ordering::SeqCst) {
                 return;
             }
-            let mode = state.settings.read().history.interaction_mode.clone();
-            mode
+            state.settings.read().history.interaction_mode.clone()
         };
 
         if let Err(error) = overlays::begin(&app, mode) {
@@ -834,5 +996,30 @@ fn remove_capture_failure_warnings(app: &AppHandle) {
     warnings.retain(|warning| !warning.starts_with("macOS native input capture could not start:"));
     if warnings.len() != before {
         let _ = app.emit("clipboard://status-changed", ());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selector_owned_modifiers_are_ignored_for_navigation() {
+        assert!(modifier_masks_match(
+            MOD_META | MOD_SHIFT,
+            0,
+            MOD_META | MOD_SHIFT
+        ));
+    }
+
+    #[test]
+    fn unrelated_modifiers_still_block_navigation() {
+        assert!(!modifier_masks_match(MOD_META | MOD_ALT, 0, MOD_META));
+    }
+
+    #[test]
+    fn explicit_navigation_modifier_is_still_required() {
+        assert!(!modifier_masks_match(0, MOD_CONTROL, 0));
+        assert!(modifier_masks_match(MOD_CONTROL, MOD_CONTROL, 0));
     }
 }
