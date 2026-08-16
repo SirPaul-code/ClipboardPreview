@@ -1,5 +1,8 @@
 use std::{
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     thread,
     time::Duration,
 };
@@ -9,13 +12,17 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::UpdaterExt;
 
+use crate::overlays;
+
 const UPDATE_ENDPOINT: &str =
     "https://github.com/SirPaul-code/ClipboardPreview/releases/latest/download/latest.json";
 const UPDATE_CHECK_DELAY: Duration = Duration::from_secs(5);
+const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(20);
 
 static UPDATER_READY: AtomicBool = AtomicBool::new(false);
 static NOTIFICATIONS_READY: AtomicBool = AtomicBool::new(false);
+static LAST_NOTIFIED_UPDATE: Mutex<Option<String>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,12 +61,15 @@ pub fn show_runtime_notice(app: &AppHandle, message: &str) {
     if !NOTIFICATIONS_READY.load(Ordering::SeqCst) {
         return;
     }
-    let _ = app
+    if let Err(error) = app
         .notification()
         .builder()
         .title("Clipboard Preview")
         .body(message)
-        .show();
+        .show()
+    {
+        log::warn!("Could not show Clipboard Preview notification: {error}");
+    }
 }
 
 pub fn register_updater(app: &AppHandle) -> Result<(), String> {
@@ -182,32 +192,74 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+fn first_notice_for(version: &str) -> bool {
+    let Ok(mut last) = LAST_NOTIFIED_UPDATE.lock() else {
+        return true;
+    };
+    if last.as_deref() == Some(version) {
+        return false;
+    }
+    *last = Some(version.to_string());
+    true
+}
+
+fn surface_available_update(app: &AppHandle, status: UpdateStatus) {
+    let first_notice = status
+        .version
+        .as_deref()
+        .is_some_and(first_notice_for);
+
+    // Keep the frontend state fresh even if the release was published after the
+    // app had already been running for hours.
+    let _ = app.emit("clipboard://update-available", status.clone());
+
+    if !first_notice {
+        return;
+    }
+
+    if NOTIFICATIONS_READY.load(Ordering::SeqCst) {
+        if let Some(version) = status.version.as_deref() {
+            if let Err(error) = app
+                .notification()
+                .builder()
+                .title("Clipboard Preview update available")
+                .body(format!("Version {version} is ready to install."))
+                .show()
+            {
+                log::warn!("Could not show update notification: {error}");
+            }
+        }
+    }
+
+    // Native notifications can be suppressed by macOS or desktop notification
+    // settings. Opening Settings once per discovered version gives the signed
+    // in-app update banner a deterministic fallback instead of silently relying
+    // on an OS notification that may never be visible.
+    if let Err(error) = overlays::open_settings(app) {
+        log::warn!("Could not surface the available update in Settings: {error}");
+    }
+}
+
 pub fn schedule_background_check(app: AppHandle) {
     if !ready() {
         return;
     }
 
     thread::spawn(move || {
-        thread::sleep(UPDATE_CHECK_DELAY);
-        let check_app = app.clone();
-        let result = tauri::async_runtime::block_on(async move { check_inner(&check_app).await });
-        match result {
-            Ok(status) if status.available => {
-                let _ = app.emit("clipboard://update-available", status.clone());
-                if NOTIFICATIONS_READY.load(Ordering::SeqCst) {
-                    if let Some(version) = status.version {
-                        let _ = app
-                            .notification()
-                            .builder()
-                            .title("Clipboard Preview update available")
-                            .body(format!("Version {version} is ready to install."))
-                            .show();
-                    }
+        let mut delay = UPDATE_CHECK_DELAY;
+        loop {
+            thread::sleep(delay);
+            delay = UPDATE_CHECK_INTERVAL;
+
+            let check_app = app.clone();
+            let result =
+                tauri::async_runtime::block_on(async move { check_inner(&check_app).await });
+            match result {
+                Ok(status) if status.available => surface_available_update(&app, status),
+                Ok(_) => {}
+                Err(error) => {
+                    log::warn!("Background update check failed: {error}");
                 }
-            }
-            Ok(_) => {}
-            Err(error) => {
-                log::warn!("Background update check failed: {error}");
             }
         }
     });

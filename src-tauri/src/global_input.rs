@@ -22,7 +22,7 @@ use crate::{
 use crate::{permissions, shortcuts};
 
 #[cfg(target_os = "macos")]
-const MAC_NATIVE_INPUT_WARNING: &str = "Clipboard Switcher native keyboard and wheel capture needs macOS Accessibility and Input Monitoring permission. Clipboard Preview will open the required Privacy & Security panes; capture activates automatically after both permissions are granted.";
+const MAC_NATIVE_INPUT_WARNING: &str = "Clipboard Switcher native keyboard and wheel capture needs macOS Accessibility permission. Clipboard Preview will request access and open Privacy & Security → Accessibility; capture activates automatically after permission is granted.";
 
 pub fn navigation_shortcut_supported(value: &str) -> bool {
     let Some(key) = value.split('+').next_back() else {
