@@ -41,7 +41,7 @@ jobs:
     name: Release ${{ matrix.name }}
     needs: prepare-release
     strategy:
-      fail-fast: false
+      fail-fast: true
       # tauri-action merges each platform into one latest.json asset. Keep these
       # uploads serialized so concurrent jobs cannot overwrite each other's entry.
       # Put Apple Silicon first so production signing/notarization credentials fail
